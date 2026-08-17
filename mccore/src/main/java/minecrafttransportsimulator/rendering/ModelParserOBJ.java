@@ -168,7 +168,10 @@ public final class ModelParserOBJ extends AModelParser {
         }
 
         int resolvedIndex = negative ? elementCount - value : value - 1;
-        if (resolvedIndex < 0 || resolvedIndex >= elementCount) {
+        //Negative indices are relative to the elements available at this line.  Keep positive
+        //indices eligible for deferred validation so legacy files with forward references retain
+        //the behavior of the previous parser, which resolved all indices after reading the object.
+        if (resolvedIndex < 0 || (negative && resolvedIndex >= elementCount)) {
             throw new IndexOutOfBoundsException("OBJ index resolves outside the available element list.");
         }
         return resolvedIndex;
