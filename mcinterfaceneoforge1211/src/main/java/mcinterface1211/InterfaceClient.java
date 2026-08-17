@@ -301,9 +301,12 @@ public class InterfaceClient implements IInterfaceClient {
         if (!InterfaceManager.clientInterface.isGamePaused() && player != null) {
             AWrapperWorld world = InterfaceManager.clientInterface.getClientWorld();
             if (world != null) {
-                //Kick off / continue model preloading across ticks.
-                initModelPreload();
-                tickModelPreload();
+                //Model preloading trades first-render stutter for potentially substantial memory usage.
+                //Keep it opt-in so large content packs load their models only when rendered.
+                if (ConfigSystem.client.renderingSettings.preloadModels.value) {
+                    initModelPreload();
+                    tickModelPreload();
+                }
                 if (!player.isSpectator()) {
                     //Handle controls.  This has to happen prior to vehicle updates to ensure click handling is based on current position of the player.
                     ControlSystem.controlGlobal(player);

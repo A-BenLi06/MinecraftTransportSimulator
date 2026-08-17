@@ -2632,6 +2632,22 @@ public final class LegacyCompatSystem {
             definition.rendering.particles.removeIf(particle -> particle.type == JSONParticle.ParticleType.DRIP);
         }
 
+        //Model parsing is expensive and the parsed data is cached.  Only parse when this definition
+        //actually needs one of the legacy conversions that inspects model object names or geometry.
+        boolean needsLegacyLightScan = definition.rendering.lightObjects == null;
+        boolean needsLegacyTreadScan = false;
+        if (definition instanceof AJSONPartProvider && ((AJSONPartProvider) definition).parts != null) {
+            for (JSONPartDefinition partDef : ((AJSONPartProvider) definition).parts) {
+                if (partDef.types != null && partDef.types.contains("ground_tread") && partDef.treadPath == null) {
+                    needsLegacyTreadScan = true;
+                    break;
+                }
+            }
+        }
+        if (!needsLegacyLightScan && !needsLegacyTreadScan) {
+            return;
+        }
+
         try {
             List<RenderableVertices> parsedModel = AModelParser.parseModel(definition.getModelLocation(definition.definitions.get(0)), true);
 
