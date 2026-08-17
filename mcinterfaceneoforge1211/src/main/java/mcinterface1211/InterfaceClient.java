@@ -45,6 +45,7 @@ import net.minecraft.world.level.material.Fluid;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.fluids.FluidStack;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -107,6 +108,12 @@ public class InterfaceClient implements IInterfaceClient {
         if (preloadIndex >= modelsToPreload.size()) {
             InterfaceManager.coreInterface.logError("MTS model preload complete: " + modelsToPreload.size() + " models cached.");
         }
+    }
+
+    /**Resets preloading so a subsequent resource set or world starts with a fresh queue.*/
+    public static void resetModelPreload() {
+        modelsToPreload = null;
+        preloadIndex = 0;
     }
 
     @Override
@@ -379,6 +386,12 @@ public class InterfaceClient implements IInterfaceClient {
                 }
             }
         }
+    }
+
+    @SubscribeEvent
+    public static void onIVClientLogout(ClientPlayerNetworkEvent.LoggingOut event) {
+        AModelParser.clearModelCache();
+        resetModelPreload();
     }
 }
 

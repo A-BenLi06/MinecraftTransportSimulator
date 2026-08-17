@@ -69,6 +69,30 @@ public abstract class AModelParser {
     }
 
     /**
+     * Clears parsed model data after the resources or client world that own it are discarded.
+     * Renderables that are still in use retain their vertex lists independently of this cache.
+     */
+    public static void clearModelCache() {
+        parsedVertices.clear();
+    }
+
+    /**Returns the number of model resources currently retained by the parsed-model cache.*/
+    public static int getCachedModelCount() {
+        return parsedVertices.size();
+    }
+
+    /**Returns the retained float-buffer payload size, excluding collection and object overhead.*/
+    public static long getCachedVertexDataBytes() {
+        long cachedBytes = 0;
+        for (List<RenderableVertices> modelObjects : parsedVertices.values()) {
+            for (RenderableVertices object : modelObjects) {
+                cachedBytes += (long) object.vertices.capacity() * Float.BYTES;
+            }
+        }
+        return cachedBytes;
+    }
+
+    /**
      * Parses the model for the passed-in entity, and generates all {@link RenderableModelObject}s for it.
      * These are returned as a list.  Objects in the parsed model are cross-checked with the passed-in
      * definition to ensure the proper constructors are created.  All objects in the model

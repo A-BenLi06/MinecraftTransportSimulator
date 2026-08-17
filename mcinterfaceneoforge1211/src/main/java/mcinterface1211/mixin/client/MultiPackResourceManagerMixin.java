@@ -12,12 +12,14 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import mcinterface1211.InterfaceEventsModelLoader;
+import mcinterface1211.InterfaceClient;
 import mcinterface1211.InterfaceLoader;
 import mcinterface1211.InterfaceSound;
 import minecrafttransportsimulator.entities.components.AEntityD_Definable;
 import minecrafttransportsimulator.mcinterface.AWrapperWorld;
 import minecrafttransportsimulator.mcinterface.InterfaceManager;
 import minecrafttransportsimulator.packloading.PackParser;
+import minecrafttransportsimulator.rendering.AModelParser;
 import minecrafttransportsimulator.systems.LanguageSystem;
 import net.minecraft.client.Minecraft;
 import net.minecraft.server.packs.PackResources;
@@ -79,6 +81,11 @@ public abstract class MultiPackResourceManagerMixin {
                     entity.resetModelsAndAnimations();
                 }
             }
+
+            //Parsed vertices reference resources from the old pack set.  Release them and allow
+            //an opt-in preload to rebuild its queue from the replacement resources.
+            AModelParser.clearModelCache();
+            InterfaceClient.resetModelPreload();
         }
     }
 }
