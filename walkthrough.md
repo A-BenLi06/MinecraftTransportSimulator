@@ -133,3 +133,26 @@ The client proxy deliberately uses the original MTS render graph so pack models,
 
 - `git diff --check` passed.
 - The full `mcinterfaceneoforge1211 build` passed after the networking, rendering, collision, and wake changes. Both `mccore` and NeoForge modules compiled and assembled successfully; only existing deprecation/removal warnings remain.
+
+## 2026-08-28T01:29:24+08:00 — Diagnostics and persistence regression tests
+
+### Changes
+
+- Added the permission-level-2 `/mtsparking` command family:
+  - `status` reports lifecycle counts, quarantined records, indexed chunks, aliases, and synchronized players;
+  - `verify` audits UUID aliases, live-entity exclusivity, chunk-index coverage, and dangling references;
+  - `wake <uuid>` restores the parked vehicle owning a vehicle or part UUID;
+  - `wakeall` provides an operator recovery path before maintenance or rollback.
+- Added NeoForge ModDevGradle JUnit support against the actual `mts` mod and Java 21 toolchain.
+- Added persistence regression coverage for complete record round trips, unsupported schema rejection, and lossless quarantine/write-back of unreadable records.
+- Exposed quarantined-record counts without making malformed data active or deleting it.
+
+### Reasoning
+
+The feature changes world authority, so a successful compile is insufficient evidence. Operators need a low-cost way to inspect and recover live worlds, while automated tests must prove that unknown data remains recoverable instead of being normalized away or silently dropped.
+
+### Verification
+
+- All three `ParkedVehicleSavedDataTest` tests passed under the NeoForge JUnit launch environment on Temurin Java 21.0.12.
+- The full `mcinterfaceneoforge1211 build` passed with 13 tasks, including compilation, assembly, the JUnit suite, checks, and both module builds.
+- `git diff --check` passed.

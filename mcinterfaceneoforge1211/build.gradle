@@ -29,6 +29,10 @@ neoForge {
             sourceSet sourceSets.main
         }
     }
+    unitTest {
+        enable()
+        testedMod = mods.mts
+    }
 }
 
 repositories {
@@ -59,6 +63,15 @@ dependencies {
     compileOnly "mezz.jei:jei-${project.mc_version}-neoforge-api:${project.jei_version}"
     runtimeOnly "mezz.jei:jei-${project.mc_version}-neoforge:${project.jei_version}"
     compileOnly "curse.maven:jade-324717:${project.jade_file_id}"
+    testImplementation(project(path: ":mccore", configuration: "relocated")) {
+        transitive = false
+    }
+    testImplementation "org.junit.jupiter:junit-jupiter:5.11.4"
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+}
+
+test {
+    useJUnitPlatform()
 }
 
 jar {

@@ -40,7 +40,9 @@ final class ParkedVehicleSavedData extends SavedData {
                 data.records.put(record.vehicleId, record);
             } catch (Exception exception) {
                 data.quarantinedRecords.add(recordTag.copy());
-                InterfaceManager.coreInterface.logError("Retaining an unreadable parked vehicle record without activating it: " + exception.getMessage());
+                if (InterfaceManager.coreInterface != null) {
+                    InterfaceManager.coreInterface.logError("Retaining an unreadable parked vehicle record without activating it: " + exception.getMessage());
+                }
             }
         }
         return data;
@@ -78,6 +80,10 @@ final class ParkedVehicleSavedData extends SavedData {
             setDirty();
         }
         return removed;
+    }
+
+    int quarantinedCount() {
+        return quarantinedRecords.size();
     }
 
     /**

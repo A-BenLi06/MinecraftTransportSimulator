@@ -325,6 +325,10 @@ public class WrapperWorld extends AWrapperWorld {
         return new ArrayList<>();
     }
 
+    ParkedVehicleManager getParkedVehicleManager() {
+        return parkedVehicleManager;
+    }
+
     /**
      * Internal method to spawn entities and return their builders.
      */

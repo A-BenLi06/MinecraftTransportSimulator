@@ -117,6 +117,80 @@ final class ParkedVehicleManager {
         return record != null && record.state == VehicleParkingState.PARKED && wake(record, reason);
     }
 
+    int wakeAll(String reason) {
+        int woken = 0;
+        for (ParkedVehicleRecord record : new ArrayList<>(savedData.records())) {
+            if (record.state == VehicleParkingState.PARKED && wake(record, reason)) {
+                ++woken;
+            }
+        }
+        return woken;
+    }
+
+    String getStatus() {
+        int pending = 0;
+        int parked = 0;
+        int waking = 0;
+        for (ParkedVehicleRecord record : savedData.records()) {
+            switch (record.state) {
+                case PARKING_PENDING:
+                    ++pending;
+                    break;
+                case PARKED:
+                    ++parked;
+                    break;
+                case WAKING:
+                    ++waking;
+                    break;
+                default:
+                    break;
+            }
+        }
+        return "records=" + savedData.records().size()
+                + ", parked=" + parked
+                + ", pending=" + pending
+                + ", waking=" + waking
+                + ", quarantined=" + savedData.quarantinedCount()
+                + ", indexedChunks=" + chunkIndex.size()
+                + ", aliases=" + parkedEntityOwners.size()
+                + ", synchronizedPlayers=" + watchedVehicleChunks.size();
+    }
+
+    List<String> verifyInvariants() {
+        List<String> failures = new ArrayList<>();
+        for (ParkedVehicleRecord record : savedData.records()) {
+            if (!record.vehicleId.equals(parkedEntityOwners.get(record.vehicleId))) {
+                failures.add("Missing vehicle alias for " + record.vehicleId);
+            }
+            for (UUID partId : record.partIds) {
+                if (!record.vehicleId.equals(parkedEntityOwners.get(partId))) {
+                    failures.add("Missing part alias " + partId + " for " + record.vehicleId);
+                }
+            }
+            if (record.state == VehicleParkingState.PARKED && world.getEntity(record.vehicleId) != null) {
+                failures.add("Parked record also has a live MTS entity: " + record.vehicleId);
+            }
+            int minChunkX = ((int) Math.floor(record.bounds.minX)) >> 4;
+            int maxChunkX = ((int) Math.floor(record.bounds.maxX)) >> 4;
+            int minChunkZ = ((int) Math.floor(record.bounds.minZ)) >> 4;
+            int maxChunkZ = ((int) Math.floor(record.bounds.maxZ)) >> 4;
+            for (int chunkX = minChunkX; chunkX <= maxChunkX; ++chunkX) {
+                for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; ++chunkZ) {
+                    Set<UUID> indexed = chunkIndex.get(ChunkPos.asLong(chunkX, chunkZ));
+                    if (indexed == null || !indexed.contains(record.vehicleId)) {
+                        failures.add("Missing chunk index " + chunkX + "," + chunkZ + " for " + record.vehicleId);
+                    }
+                }
+            }
+        }
+        for (Map.Entry<UUID, UUID> alias : parkedEntityOwners.entrySet()) {
+            if (savedData.get(alias.getValue()) == null) {
+                failures.add("Alias " + alias.getKey() + " points to absent vehicle " + alias.getValue());
+            }
+        }
+        return failures;
+    }
+
     void wakeInArea(AABB area, String reason) {
         for (UUID vehicleId : getIndexedVehicleIds(area)) {
             ParkedVehicleRecord record = savedData.get(vehicleId);
