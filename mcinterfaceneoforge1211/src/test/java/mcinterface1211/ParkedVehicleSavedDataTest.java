@@ -2,15 +2,22 @@ package mcinterface1211;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import minecrafttransportsimulator.baseclasses.VehicleParkingState;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.NbtAccounter;
+import net.minecraft.nbt.NbtIo;
 import net.minecraft.nbt.StringTag;
 import net.minecraft.nbt.Tag;
 
@@ -53,6 +60,24 @@ class ParkedVehicleSavedDataTest {
         assertEquals(0, data.records().size());
         assertEquals(1, data.quarantinedCount());
         assertEquals(unsupported, saved.getList("records", Tag.TAG_COMPOUND).getCompound(0));
+    }
+
+    @Test
+    void durableSaveWritesAReadableDimensionFile(@TempDir Path temporaryDirectory) throws IOException {
+        ParkedVehicleSavedData data = new ParkedVehicleSavedData();
+        UUID vehicleId = UUID.randomUUID();
+        data.put(ParkedVehicleRecord.load(createRecord(vehicleId, UUID.randomUUID(), 1)));
+
+        data.saveDurably(temporaryDirectory.toFile(), RegistryAccess.EMPTY);
+
+        File dataFile = new File(temporaryDirectory.toFile(), ParkedVehicleSavedData.DATA_NAME + ".dat");
+        assertTrue(dataFile.isFile());
+        CompoundTag root = NbtIo.readCompressed(dataFile.toPath(), NbtAccounter.unlimitedHeap());
+        ListTag records = root.getCompound("data").getList("records", Tag.TAG_COMPOUND);
+        assertTrue(records.stream().anyMatch(tag -> ((CompoundTag) tag).getUUID("vehicleUUID").equals(vehicleId)));
+
+        data.remove(vehicleId);
+        data.saveDurably(temporaryDirectory.toFile(), RegistryAccess.EMPTY);
     }
 
     private static CompoundTag createRecord(UUID vehicleId, UUID partId, int schema) {

@@ -91,10 +91,14 @@ final class ParkedVehicleSavedData extends SavedData {
      * Parking transitions cannot wait for the next periodic world save.
      */
     void saveDurably(ServerLevel level) throws IOException {
-        CompoundTag root = new CompoundTag();
-        root.put("data", save(new CompoundTag(), level.registryAccess()));
-        NbtUtils.addCurrentDataVersion(root);
         File dataFolder = ((DimensionDataStorageMixin) level.getDataStorage()).getDataFolder();
+        saveDurably(dataFolder, level.registryAccess());
+    }
+
+    void saveDurably(File dataFolder, HolderLookup.Provider registries) throws IOException {
+        CompoundTag root = new CompoundTag();
+        root.put("data", save(new CompoundTag(), registries));
+        NbtUtils.addCurrentDataVersion(root);
         IOUtilities.writeNbtCompressed(root, new File(dataFolder, DATA_NAME + ".dat").toPath());
         setDirty(false);
     }

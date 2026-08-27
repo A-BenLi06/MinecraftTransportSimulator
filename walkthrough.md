@@ -89,6 +89,7 @@ The core owns semantic eligibility because it understands vehicle and part state
 ### Verification
 
 - `git diff --check` passed.
+
 - `mcinterfaceneoforge1211 compileJava` passed with Gradle 8.8 on Java 24 targeting the project's Java 8 compatibility level. Only the four pre-existing NeoForge deprecation/removal warnings were emitted.
 
 ## 2026-08-28T00:05:28+08:00 — Durable server parking and wake lifecycle
@@ -156,3 +157,14 @@ The feature changes world authority, so a successful compile is insufficient evi
 - All three `ParkedVehicleSavedDataTest` tests passed under the NeoForge JUnit launch environment on Temurin Java 21.0.12.
 - The full `mcinterfaceneoforge1211 build` passed with 13 tasks, including compilation, assembly, the JUnit suite, checks, and both module builds.
 - `git diff --check` passed.
+
+## 2026-08-28T01:33:26+08:00 — Atomic file persistence test
+
+### Changes
+
+- Split the durable save implementation into a production `ServerLevel` adapter and a package-scoped file/provider primitive, with both paths using the same NeoForge atomic compressed-NBT writer.
+- Added a fourth regression test that writes a real `mts_parked_vehicles.dat` into an isolated temporary directory, reads it back through `NbtIo`, verifies the parked UUID is present, removes it, and persists the cleanup.
+
+### Verification
+
+- All four NeoForge JUnit tests passed with zero failures in 0.12 seconds of test execution time.
