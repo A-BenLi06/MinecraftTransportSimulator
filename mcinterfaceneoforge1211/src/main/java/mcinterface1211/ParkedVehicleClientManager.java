@@ -20,12 +20,14 @@ import minecrafttransportsimulator.entities.instances.EntityVehicleF_Physics;
 import minecrafttransportsimulator.mcinterface.IWrapperNBT;
 import minecrafttransportsimulator.mcinterface.InterfaceManager;
 import minecrafttransportsimulator.jsondefs.JSONCollisionGroup.CollisionType;
+import minecrafttransportsimulator.packets.instances.PacketVehicleParkingChange;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
 
 /** Client-only owner of static MTS render proxies. */
 final class ParkedVehicleClientManager {
+    private static final long MAX_UNCOMPRESSED_SNAPSHOT_BYTES = 64L * 1024L * 1024L;
     private final WrapperWorld world;
     private final Map<UUID, ProxyEntry> proxies = new HashMap<>();
     private final Map<UUID, PendingSnapshot> pendingSnapshots = new HashMap<>();
@@ -57,9 +59,9 @@ final class ParkedVehicleClientManager {
             }
             if (assembly.add(chunkIndex, compressedDataChunk)) {
                 try {
-                    WrapperNBT vehicleData = new WrapperNBT(NbtIo.readCompressed(new ByteArrayInputStream(assembly.join()), NbtAccounter.unlimitedHeap()));
+                    WrapperNBT vehicleData = new WrapperNBT(NbtIo.readCompressed(new ByteArrayInputStream(assembly.join()), NbtAccounter.create(MAX_UNCOMPRESSED_SNAPSHOT_BYTES)));
                     pendingSnapshots.put(vehicleId, new PendingSnapshot(generation, entityId, vehicleData));
-                } catch (IOException exception) {
+                } catch (Exception exception) {
                     InterfaceManager.coreInterface.logError("Could not decompress parked vehicle render snapshot " + vehicleId + ": " + exception.getMessage());
                 }
                 pendingAssemblies.remove(vehicleId);
@@ -171,6 +173,7 @@ final class ParkedVehicleClientManager {
         final int totalChunks;
         final byte[][] chunks;
         int chunksReceived;
+        int bytesReceived;
 
         PendingAssembly(long generation, String entityId, int totalChunks) {
             this.generation = generation;
@@ -183,12 +186,16 @@ final class ParkedVehicleClientManager {
             if (chunks[chunkIndex] == null) {
                 chunks[chunkIndex] = chunk;
                 ++chunksReceived;
+                bytesReceived += chunk.length;
             }
             return chunksReceived == totalChunks;
         }
 
         byte[] join() throws IOException {
-            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            if (bytesReceived > PacketVehicleParkingChange.MAX_COMPRESSED_BYTES) {
+                throw new IOException("Compressed parked vehicle snapshot exceeds the protocol limit");
+            }
+            ByteArrayOutputStream output = new ByteArrayOutputStream(bytesReceived);
             for (byte[] chunk : chunks) {
                 output.write(chunk);
             }

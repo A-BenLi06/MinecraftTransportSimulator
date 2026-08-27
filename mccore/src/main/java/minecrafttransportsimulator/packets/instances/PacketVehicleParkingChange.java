@@ -8,7 +8,9 @@ import minecrafttransportsimulator.packets.components.APacketBase;
 
 /** Synchronizes a generation-ordered parked render snapshot to one client. */
 public class PacketVehicleParkingChange extends APacketBase {
-    private static final int MAX_CHUNK_BYTES = 24 * 1024;
+    public static final int MAX_CHUNK_BYTES = 24 * 1024;
+    public static final int MAX_TOTAL_CHUNKS = 512;
+    public static final int MAX_COMPRESSED_BYTES = MAX_CHUNK_BYTES * MAX_TOTAL_CHUNKS;
 
     private final UUID vehicleId;
     private final long generation;
@@ -25,6 +27,7 @@ public class PacketVehicleParkingChange extends APacketBase {
         this.chunkIndex = chunkIndex;
         this.totalChunks = totalChunks;
         this.compressedDataChunk = compressedDataChunk;
+        validateChunkMetadata();
     }
 
     public PacketVehicleParkingChange(UUID vehicleId, long generation) {
@@ -36,11 +39,14 @@ public class PacketVehicleParkingChange extends APacketBase {
         this.vehicleId = readUUIDFromBuffer(buf);
         this.generation = buf.readLong();
         this.totalChunks = buf.readInt();
+        if (totalChunks < 0 || totalChunks > MAX_TOTAL_CHUNKS) {
+            throw new IllegalArgumentException("Invalid parked vehicle snapshot chunk count");
+        }
         if (totalChunks > 0) {
             this.entityId = readStringFromBuffer(buf);
             this.chunkIndex = buf.readInt();
             int chunkLength = buf.readInt();
-            if (totalChunks > 4096 || chunkIndex < 0 || chunkIndex >= totalChunks || chunkLength < 0 || chunkLength > MAX_CHUNK_BYTES || chunkLength > buf.readableBytes()) {
+            if (totalChunks > MAX_TOTAL_CHUNKS || chunkIndex < 0 || chunkIndex >= totalChunks || chunkLength < 0 || chunkLength > MAX_CHUNK_BYTES || chunkLength > buf.readableBytes()) {
                 throw new IllegalArgumentException("Invalid parked vehicle snapshot chunk metadata");
             }
             this.compressedDataChunk = new byte[chunkLength];
@@ -50,6 +56,7 @@ public class PacketVehicleParkingChange extends APacketBase {
             this.chunkIndex = 0;
             this.compressedDataChunk = new byte[0];
         }
+        validateChunkMetadata();
     }
 
     @Override
@@ -69,5 +76,15 @@ public class PacketVehicleParkingChange extends APacketBase {
     @Override
     public void handle(AWrapperWorld world) {
         world.updateParkedVehicleProxy(vehicleId, generation, entityId, chunkIndex, totalChunks, compressedDataChunk);
+    }
+
+    private void validateChunkMetadata() {
+        if (totalChunks == 0) {
+            if (chunkIndex != 0 || compressedDataChunk.length != 0) {
+                throw new IllegalArgumentException("Removal packets cannot contain parked vehicle snapshot data");
+            }
+        } else if (totalChunks < 0 || totalChunks > MAX_TOTAL_CHUNKS || chunkIndex < 0 || chunkIndex >= totalChunks || compressedDataChunk.length > MAX_CHUNK_BYTES) {
+            throw new IllegalArgumentException("Invalid parked vehicle snapshot chunk metadata");
+        }
     }
 }

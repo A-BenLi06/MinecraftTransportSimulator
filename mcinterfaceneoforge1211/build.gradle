@@ -2,6 +2,8 @@ plugins {
     id "net.neoforged.moddev" version "2.0.+"
 }
 
+evaluationDependsOn(":mccore")
+
 version = "${project.mc_version}-${project.mod_version}"
 group = project.mod_group
 base.archivesName = project.archive_name
@@ -27,6 +29,9 @@ neoForge {
     mods {
         mts {
             sourceSet sourceSets.main
+            // Release jars embed mccore. Dev runs use class directories, so model the
+            // same logical mod with both source sets instead of a separate runtime module.
+            sourceSet project(":mccore").sourceSets.moddev
         }
     }
     unitTest {
@@ -68,6 +73,9 @@ dependencies {
     }
     testImplementation "org.junit.jupiter:junit-jupiter:5.11.4"
     testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+
+    // JLayer is embedded in release jars but remains an external dependency in dev runs.
+    additionalRuntimeClasspath "com.googlecode.soundlibs:jlayer:1.0.1.4"
 }
 
 test {

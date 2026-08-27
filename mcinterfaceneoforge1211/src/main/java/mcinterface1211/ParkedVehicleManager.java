@@ -1,8 +1,10 @@
 package mcinterface1211;
 
 import java.io.IOException;
+import java.util.ArrayDeque;
 import java.util.Arrays;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -37,6 +39,8 @@ final class ParkedVehicleManager {
     private final Map<UUID, UUID> parkedEntityOwners = new HashMap<>();
     private final Map<UUID, Map<UUID, Integer>> watchedVehicleChunks = new HashMap<>();
     private final Set<UUID> collisionWakeRequests = new HashSet<>();
+    private final Deque<UUID> disabledRestoreQueue = new ArrayDeque<>();
+    private boolean disabledRestoreQueueInitialized;
     private int ticks;
 
     ParkedVehicleManager(WrapperWorld world, ServerLevel level) {
@@ -153,7 +157,8 @@ final class ParkedVehicleManager {
                 + ", quarantined=" + savedData.quarantinedCount()
                 + ", indexedChunks=" + chunkIndex.size()
                 + ", aliases=" + parkedEntityOwners.size()
-                + ", synchronizedPlayers=" + watchedVehicleChunks.size();
+                + ", synchronizedPlayers=" + watchedVehicleChunks.size()
+                + ", rollbackQueue=" + disabledRestoreQueue.size();
     }
 
     List<String> verifyInvariants() {
@@ -240,9 +245,36 @@ final class ParkedVehicleManager {
             reconcileTransitions();
         }
 
+        if (ticks >= INITIAL_RECONCILIATION_DELAY && !ConfigSystem.settings.parking.enabled.value && ConfigSystem.settings.parking.restoreWhenDisabled.value) {
+            restoreDisabledBatch();
+            return;
+        } else if (ConfigSystem.settings.parking.enabled.value) {
+            disabledRestoreQueue.clear();
+            disabledRestoreQueueInitialized = false;
+        }
+
         int scanInterval = Math.max(1, ConfigSystem.settings.parking.wakeScanIntervalTicks.value);
         if (ticks >= INITIAL_RECONCILIATION_DELAY && ticks % scanInterval == 0 && !chunkIndex.isEmpty()) {
             wakeVehiclesNearPlayers();
+        }
+    }
+
+    private void restoreDisabledBatch() {
+        if (!disabledRestoreQueueInitialized) {
+            for (ParkedVehicleRecord record : savedData.records()) {
+                if (record.state == VehicleParkingState.PARKED) {
+                    disabledRestoreQueue.addLast(record.vehicleId);
+                }
+            }
+            disabledRestoreQueueInitialized = true;
+        }
+        int batchSize = Math.max(1, ConfigSystem.settings.parking.restoreBatchSize.value);
+        for (int restored = 0; restored < batchSize && !disabledRestoreQueue.isEmpty(); ++restored) {
+            UUID vehicleId = disabledRestoreQueue.removeFirst();
+            ParkedVehicleRecord record = savedData.get(vehicleId);
+            if (record != null && record.state == VehicleParkingState.PARKED) {
+                wake(record, "parked proxies disabled");
+            }
         }
     }
 
@@ -486,6 +518,10 @@ final class ParkedVehicleManager {
     private boolean sendSnapshot(ServerPlayer player, ParkedVehicleRecord record) {
         try {
             byte[] compressedSnapshot = record.getCompressedRenderSnapshot();
+            if (compressedSnapshot.length > PacketVehicleParkingChange.MAX_COMPRESSED_BYTES) {
+                InterfaceManager.coreInterface.logError("Parked vehicle render snapshot " + record.vehicleId + " is " + compressedSnapshot.length + " bytes and exceeds the " + PacketVehicleParkingChange.MAX_COMPRESSED_BYTES + " byte protocol limit. The authoritative parked record was retained and will wake normally by proximity.");
+                return false;
+            }
             int totalChunks = Math.max(1, (compressedSnapshot.length + SNAPSHOT_CHUNK_BYTES - 1) / SNAPSHOT_CHUNK_BYTES);
             for (int chunkIndex = 0; chunkIndex < totalChunks; ++chunkIndex) {
                 int start = chunkIndex * SNAPSHOT_CHUNK_BYTES;

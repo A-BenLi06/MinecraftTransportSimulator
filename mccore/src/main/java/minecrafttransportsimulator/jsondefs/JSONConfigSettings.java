@@ -94,6 +94,8 @@ public class JSONConfigSettings {
         public JSONConfigEntry<Integer> wakeScanIntervalTicks = new JSONConfigEntry<>(5, "Number of server ticks between indexed proximity checks for parked vehicles.");
         public JSONConfigEntry<Double> clientRenderDistance = new JSONConfigEntry<>(256.0D, "Maximum distance in blocks at which parked vehicle render proxies are synchronized to clients.");
         public JSONConfigEntry<Boolean> staticCollision = new JSONConfigEntry<>(true, "If true, parked vehicles retain cached static collision boxes while their active entities are absent.");
+        public JSONConfigEntry<Boolean> restoreWhenDisabled = new JSONConfigEntry<>(true, "If true, disabling parked proxies restores persisted vehicles to normal entities after startup reconciliation.  Keep enabled before downgrading or removing this build.");
+        public JSONConfigEntry<Integer> restoreBatchSize = new JSONConfigEntry<>(4, "Maximum number of persisted vehicles restored per server tick when parked proxies are disabled.  This limits rollback load spikes.");
     }
 
     public static class ConfigDamage {

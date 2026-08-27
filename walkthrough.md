@@ -168,3 +168,31 @@ The feature changes world authority, so a successful compile is insufficient evi
 ### Verification
 
 - All four NeoForge JUnit tests passed with zero failures in 0.12 seconds of test execution time.
+
+## 2026-08-28T01:49:49+08:00 — Runtime parity, rollback, and bounded snapshot memory
+
+### Changes
+
+- Added a uniquely named `mccore` ModDev source set and combined it with the NeoForge interface source set as one local `mts` mod. Release jars remain unchanged: they still embed the relocated core artifact.
+- Added bounded automatic restoration when parked proxies are disabled. After startup reconciliation, persisted parked records wake in configurable batches instead of remaining hidden during rollback or creating a one-tick entity spike.
+- Capped each synchronized render snapshot at 512 × 24 KiB compressed and 64 MiB after NBT decompression. Both locally constructed and decoded packets validate chunk counts, indexes, and lengths before client allocation.
+- Added protocol regression tests for negative/excessive chunk counts, oversized chunks, and valid removal packets.
+- Added `PARKED_VEHICLE_PROXY.md` with configuration, commands, recovery, controlled before/after evidence collection, and downgrade procedure.
+
+### Reasoning
+
+Development runs must load the same logical class graph as assembled jars; otherwise a successful unit test can coexist with a dedicated-server classloading failure. Rollback also needs to be a first-class lifecycle, and compressed data requires independent compressed and expanded limits so a malformed or pathological snapshot cannot turn a TPS optimization into a client allocation failure.
+
+### Verification
+
+- A NeoForge 21.1.77 dedicated development server on Java 21 discovered `mts`, loaded IV 25.0.0, generated the world, and reached `Done` on isolated port 25585. No MTS mixin, core-class, or parked-proxy exception occurred.
+- The expanded eight-test JUnit suite passed under the NeoForge test launch environment.
+
+## 2026-08-28T01:54:30+08:00 — Final clean-build and artifact gate
+
+### Verification
+
+- A from-scratch `clean build` completed all 17 NeoForge/core tasks successfully on Java 21; both JUnit suites reported 8 tests, 0 failures, 0 errors, and 0 skipped tests.
+- Inspected the 6,237,510-byte `Immersive Vehicles-1.21.1-25.0.0.jar`: it contains the mod metadata, mixin manifest, embedded `mccore` classes, parking protocol, SavedData, server manager, and client proxy manager.
+- Repeated the dedicated-server gate from the final compiled classes. NeoForge discovered `mts`, loaded IV 25.0.0, and reached `Done (9.093s)` on isolated port 25585 without parking-related exceptions.
+- `git diff --check` passed; generated runtime world/config/log files remain ignored and are not part of the source commit.

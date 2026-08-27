@@ -15,6 +15,18 @@ apply plugin: "java"
 apply plugin: "eclipse"
 apply plugin: "com.github.johnrengelman.shadow"
 
+// ModDevGradle identifies source sets by name when it assembles local mod folders.
+// Give development runs a uniquely named view of the core sources so they can be
+// combined with an interface module's main source set without ambiguity.
+sourceSets {
+    moddev {
+        java.srcDirs = sourceSets.main.java.srcDirs
+        resources.srcDirs = sourceSets.main.resources.srcDirs
+        compileClasspath = sourceSets.main.compileClasspath
+        runtimeClasspath = output + compileClasspath
+    }
+}
+
 //Set file name.
 version = "Core"
 group = "minecrafttransportsimulator"
