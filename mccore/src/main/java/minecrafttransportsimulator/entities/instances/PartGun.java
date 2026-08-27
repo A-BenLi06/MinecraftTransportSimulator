@@ -299,6 +299,18 @@ public class PartGun extends APart {
     }
 
     @Override
+    public boolean preventsVehicleParking() {
+        return super.preventsVehicleParking()
+                || isReloading
+                || state.isAtLeast(GunState.FIRING_CURRENTLY)
+                || cooldownTimeRemaining > 0
+                || reloadDelayRemaining > 0
+                || windupTimeCurrent > 0
+                || firingRequestedVar.isActive
+                || !activeManualBullets.isEmpty();
+    }
+
+    @Override
     public boolean interact(IWrapperPlayer player) {
         //Check to see if we have any bullets in our hands.
         //If so, try to re-load this gun with them.

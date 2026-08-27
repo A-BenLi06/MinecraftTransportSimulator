@@ -71,3 +71,22 @@ Eligibility is extensible through a part-level activity predicate instead of a h
 3. Add chunk-scoped client proxy synchronization and static rendering.
 4. Add static collision and all wake triggers.
 5. Build automated and runtime validation, profile the result, then publish the branch and artifacts.
+
+## 2026-08-27T23:58:16+08:00 — Platform-neutral parking lifecycle contract
+
+### Changes
+
+- Added explicit `ACTIVE`, `PARKING_PENDING`, `PARKED`, and `WAKING` lifecycle states and structured eligibility blocker reasons.
+- Added an opt-in parking configuration group. The feature remains disabled by default until the NeoForge persistence, synchronization, collision, and recovery layers are present.
+- Added conservative server-side eligibility tracking to vehicles, including a continuous stability window and fail-closed checks for riders, motion, towing, engines/starters, lights/electrical use, navigation and targeting activity, damage, guns, and effectors.
+- Added a part-level `preventsVehicleParking()` contract so live subsystems remain responsible for declaring asynchronous work instead of making the platform layer guess their state.
+- Added default-disabled world wrapper hooks. Older Forge targets therefore retain their existing entity lifecycle without behavior changes.
+
+### Reasoning
+
+The core owns semantic eligibility because it understands vehicle and part state. Platform code owns the durable representation change because persistence and builder removal differ by Minecraft version. Keeping those responsibilities separate makes the transition auditable, prevents NeoForge implementation details from leaking into shared physics code, and allows unsupported platforms to fail closed.
+
+### Verification
+
+- `git diff --check` passed.
+- `mcinterfaceneoforge1211 compileJava` passed with Gradle 8.8 on Java 24 targeting the project's Java 8 compatibility level. Only the four pre-existing NeoForge deprecation/removal warnings were emitted.

@@ -24,6 +24,7 @@ import minecrafttransportsimulator.packloading.PackParser;
  */
 public class JSONConfigSettings {
     public ConfigGeneral general = new ConfigGeneral();
+    public ConfigParking parking = new ConfigParking();
     public ConfigDamage damage = new ConfigDamage();
     public ConfigFuel fuel = new ConfigFuel();
 
@@ -82,6 +83,17 @@ public class JSONConfigSettings {
                 return weights;
             }
         }
+    }
+
+    public static class ConfigParking {
+        public JSONConfigEntry<Boolean> enabled = new JSONConfigEntry<>(false, "If true, eligible unoccupied vehicles are stored as non-ticking parked proxies and restored when activity is required.  Keep disabled until server and client configurations match.");
+        public JSONConfigEntry<Integer> stableDelaySeconds = new JSONConfigEntry<>(5, "How many continuous seconds a vehicle must remain eligible before it may become a parked proxy.");
+        public JSONConfigEntry<Double> maximumLinearSpeed = new JSONConfigEntry<>(0.002D, "Maximum motion in blocks per tick at which a vehicle is considered stationary for parking.");
+        public JSONConfigEntry<Double> maximumAngularSpeed = new JSONConfigEntry<>(0.01D, "Maximum rotation in degrees per tick at which a vehicle is considered stationary for parking.");
+        public JSONConfigEntry<Double> wakeDistance = new JSONConfigEntry<>(16.0D, "Distance in blocks at which a player causes a parked vehicle to restore its active entity.");
+        public JSONConfigEntry<Integer> wakeScanIntervalTicks = new JSONConfigEntry<>(5, "Number of server ticks between indexed proximity checks for parked vehicles.");
+        public JSONConfigEntry<Double> clientRenderDistance = new JSONConfigEntry<>(256.0D, "Maximum distance in blocks at which parked vehicle render proxies are synchronized to clients.");
+        public JSONConfigEntry<Boolean> staticCollision = new JSONConfigEntry<>(true, "If true, parked vehicles retain cached static collision boxes while their active entities are absent.");
     }
 
     public static class ConfigDamage {

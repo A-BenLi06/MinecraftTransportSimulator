@@ -74,6 +74,11 @@ public class PartEffector extends APart {
     }
 
     @Override
+    public boolean preventsVehicleParking() {
+        return super.preventsVehicleParking() || isActiveVar.isActive || operatedThisTickVar.isActive;
+    }
+
+    @Override
     public void update() {
         super.update();
         //If we are active, do effector things.  Only do these on the server, clients get packets.

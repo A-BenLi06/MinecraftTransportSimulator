@@ -170,6 +170,15 @@ public abstract class APart extends AEntityF_Multipart<JSONPart> {
         }
     }
 
+    /**
+     * Returns true when this part owns live state that must continue receiving update ticks.
+     * Subclasses with engines, weapons, effectors, transfers, or other asynchronous work
+     * must extend this predicate.  Riders always keep the complete vehicle active.
+     */
+    public boolean preventsVehicleParking() {
+        return rider != null;
+    }
+
     @Override
     public void update() {
         super.update();

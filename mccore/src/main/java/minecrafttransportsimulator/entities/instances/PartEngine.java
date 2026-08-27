@@ -204,6 +204,11 @@ public class PartEngine extends APart {
     }
 
     @Override
+    public boolean preventsVehicleParking() {
+        return super.preventsVehicleParking() || running || starterLevel > 0 || electricStarterVar.isActive || handStarterVar.isActive;
+    }
+
+    @Override
     public void attack(Damage damage) {
         super.attack(damage);
         if (!damage.isWater) {

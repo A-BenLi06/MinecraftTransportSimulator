@@ -10,7 +10,10 @@ import minecrafttransportsimulator.baseclasses.ComputedVariable;
 import minecrafttransportsimulator.baseclasses.Point3D;
 import minecrafttransportsimulator.baseclasses.TowingConnection;
 import minecrafttransportsimulator.baseclasses.TransformationMatrix;
+import minecrafttransportsimulator.baseclasses.VehicleParkingBlocker;
+import minecrafttransportsimulator.baseclasses.VehicleParkingState;
 import minecrafttransportsimulator.entities.components.AEntityB_Existing;
+import minecrafttransportsimulator.entities.components.AEntityA_Base.EntityAutoUpdateTime;
 import minecrafttransportsimulator.entities.components.AEntityG_Towable;
 import minecrafttransportsimulator.items.instances.ItemVehicle;
 import minecrafttransportsimulator.mcinterface.AWrapperWorld;
@@ -28,6 +31,11 @@ import minecrafttransportsimulator.systems.ConfigSystem;
  * @author don_bruce
  */
 public class EntityVehicleF_Physics extends AEntityVehicleE_Powered {
+    private static final int TICKS_PER_SECOND = 20;
+
+    private VehicleParkingState parkingState = VehicleParkingState.ACTIVE;
+    private VehicleParkingBlocker parkingBlocker = VehicleParkingBlocker.FEATURE_DISABLED;
+    private int parkingStableTicks;
     //Aileron.
     public final ComputedVariable aileronInputVar;
     public final ComputedVariable aileronAngleVar;
@@ -183,6 +191,106 @@ public class EntityVehicleF_Physics extends AEntityVehicleE_Powered {
             arcadeRotorDirection.set(0, 0, 0);
         }
         world.endProfiling();
+        if (!world.isClient()) {
+            updateParkingLifecycle();
+        }
+    }
+
+    @Override
+    public EntityAutoUpdateTime getUpdateTime() {
+        return parkingState == VehicleParkingState.PARKED ? EntityAutoUpdateTime.NEVER : super.getUpdateTime();
+    }
+
+    public VehicleParkingState getParkingState() {
+        return parkingState;
+    }
+
+    public VehicleParkingBlocker getParkingBlocker() {
+        return parkingBlocker;
+    }
+
+    public int getParkingStableTicks() {
+        return parkingStableTicks;
+    }
+
+    /**Used by the platform lifecycle after it has established the authoritative representation.*/
+    public void setParkingState(VehicleParkingState state) {
+        parkingState = state;
+        parkingStableTicks = 0;
+    }
+
+    private void updateParkingLifecycle() {
+        parkingBlocker = findParkingBlocker();
+        if (parkingBlocker != VehicleParkingBlocker.NONE) {
+            if (parkingState == VehicleParkingState.PARKING_PENDING) {
+                parkingState = VehicleParkingState.ACTIVE;
+            }
+            parkingStableTicks = 0;
+            return;
+        }
+
+        if (parkingState == VehicleParkingState.ACTIVE) {
+            parkingState = VehicleParkingState.PARKING_PENDING;
+        }
+        if (parkingStableTicks < Integer.MAX_VALUE) {
+            ++parkingStableTicks;
+        }
+
+        long configuredDelay = Math.max(0L, ConfigSystem.settings.parking.stableDelaySeconds.value.longValue()) * TICKS_PER_SECOND;
+        int requiredStableTicks = configuredDelay > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) configuredDelay;
+        if (parkingStableTicks >= requiredStableTicks && world.parkVehicle(this)) {
+            setParkingState(VehicleParkingState.PARKED);
+        }
+    }
+
+    private VehicleParkingBlocker findParkingBlocker() {
+        if (!ConfigSystem.settings.parking.enabled.value) {
+            return VehicleParkingBlocker.FEATURE_DISABLED;
+        }
+        if (!world.supportsVehicleParking()) {
+            return VehicleParkingBlocker.PLATFORM_UNSUPPORTED;
+        }
+        if (world.isClient()) {
+            return VehicleParkingBlocker.CLIENT_WORLD;
+        }
+        if (!isValid) {
+            return VehicleParkingBlocker.INVALID_ENTITY;
+        }
+        if (parkingState == VehicleParkingState.PARKED || parkingState == VehicleParkingState.WAKING) {
+            return VehicleParkingBlocker.TRANSITION_IN_PROGRESS;
+        }
+        for (APart part : allParts) {
+            if (part.rider != null) {
+                return VehicleParkingBlocker.RIDER_PRESENT;
+            }
+        }
+        if (motion.length() > Math.max(0D, ConfigSystem.settings.parking.maximumLinearSpeed.value)) {
+            return VehicleParkingBlocker.LINEAR_MOTION;
+        }
+        if (rotation.angles.length() > Math.max(0D, ConfigSystem.settings.parking.maximumAngularSpeed.value)) {
+            return VehicleParkingBlocker.ANGULAR_MOTION;
+        }
+        if (towedByConnection != null || !towingConnections.isEmpty()) {
+            return VehicleParkingBlocker.TOWING_CONNECTION;
+        }
+        if (enginesOn || enginesStarting || enginesRunning) {
+            return VehicleParkingBlocker.ENGINE_ACTIVITY;
+        }
+        if (runningLightVar.isActive || headLightVar.isActive || navigationLightVar.isActive || strobeLightVar.isActive || taxiLightVar.isActive || landingLightVar.isActive || hornVar.isActive || beingFueled || gearMovementTime != 0) {
+            return VehicleParkingBlocker.ELECTRICAL_ACTIVITY;
+        }
+        if (autopilotValueVar.currentValue != 0 || !missilesIncoming.isEmpty() || !radarsTracking.isEmpty() || !gunsLockedOn.isEmpty()) {
+            return VehicleParkingBlocker.NAVIGATION_ACTIVITY;
+        }
+        if (outOfHealth || ticksOutOfHealth != 0) {
+            return VehicleParkingBlocker.DAMAGE_ACTIVITY;
+        }
+        for (APart part : allParts) {
+            if (part.preventsVehicleParking()) {
+                return part instanceof PartEngine ? VehicleParkingBlocker.ENGINE_ACTIVITY : VehicleParkingBlocker.PART_ACTIVITY;
+            }
+        }
+        return VehicleParkingBlocker.NONE;
     }
 
     @Override

@@ -19,6 +19,7 @@ import minecrafttransportsimulator.blocks.tileentities.components.ATileEntityBas
 import minecrafttransportsimulator.entities.components.AEntityA_Base;
 import minecrafttransportsimulator.entities.components.AEntityB_Existing;
 import minecrafttransportsimulator.entities.components.AEntityE_Interactable;
+import minecrafttransportsimulator.entities.instances.EntityVehicleF_Physics;
 import minecrafttransportsimulator.jsondefs.AJSONMultiModelProvider;
 
 /**
@@ -127,6 +128,23 @@ public abstract class AWrapperWorld extends EntityManager {
      * Spawns the brand-new entity into the world.
      */
     public abstract void spawnEntity(AEntityB_Existing entity);
+
+    /**
+     * Returns true when this platform provides durable parked-vehicle proxy storage.
+     * Platforms that do not override this method remain on the normal entity lifecycle.
+     */
+    public boolean supportsVehicleParking() {
+        return false;
+    }
+
+    /**
+     * Requests an atomic transition from an active vehicle to a parked proxy record.
+     * Returns true only after the platform has accepted authoritative responsibility for
+     * the complete vehicle data and removed the active representation.
+     */
+    public boolean parkVehicle(EntityVehicleF_Physics vehicle) {
+        return false;
+    }
 
     /**
      * Attacks all entities that are in the passed-in damage range.
