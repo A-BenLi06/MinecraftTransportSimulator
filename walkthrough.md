@@ -90,3 +90,24 @@ The core owns semantic eligibility because it understands vehicle and part state
 
 - `git diff --check` passed.
 - `mcinterfaceneoforge1211 compileJava` passed with Gradle 8.8 on Java 24 targeting the project's Java 8 compatibility level. Only the four pre-existing NeoForge deprecation/removal warnings were emitted.
+
+## 2026-08-28T00:05:28+08:00 — Durable server parking and wake lifecycle
+
+### Changes
+
+- Added dimension-scoped `SavedData` containing the untouched MTS vehicle NBT, original UUID, entity factory ID, lifecycle state, transition generation, position, encompassing bounds, and cached entity-collision AABBs.
+- Added an in-memory chunk-to-UUID index derived from persisted bounds. Player proximity checks now visit only records intersecting nearby chunks and run at a configurable interval.
+- Implemented the active-to-parked transaction: capture and synchronously persist `PARKING_PENDING`, remove the MTS vehicle/parts and vanilla builder, then synchronously persist `PARKED`.
+- Implemented the parked-to-active transaction: synchronously persist `WAKING`, reconstruct through the registered MTS entity factory using a copy of the original NBT, verify the original UUID, register the entity and parts, then remove the record.
+- Added delayed and periodic crash reconciliation. Pending/waking records with a live entity are removed; records without a live entity become parked. Proximity wake is held until the initial reconciliation window completes so a vanilla builder still loading from a crash cannot be duplicated.
+- Added fail-safe handling for missing packs, reconstruction failures, write failures, unsupported schemas, malformed records, and duplicate UUID records. Unreadable data is quarantined and written back unchanged rather than discarded.
+- Used NeoForge's temporary-file replacement writer for immediate transition durability instead of waiting for Minecraft's periodic save.
+
+### Reasoning
+
+The durable record is authoritative throughout both transitions. Every crash boundary therefore has either a restorable record, a normal live builder, or both; reconciliation deterministically selects the live entity when present and otherwise retains the record. Full-table scans are confined to rare reconciliation passes, while the normal wake path scales with occupied nearby chunks.
+
+### Verification
+
+- `git diff --check` passed.
+- The complete `mcinterfaceneoforge1211 build` passed with Gradle 8.8. Compilation, resources, assembly, checks, and both module builds completed successfully.

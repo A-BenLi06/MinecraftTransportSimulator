@@ -121,6 +121,7 @@ public class WrapperWorld extends AWrapperWorld {
     private static Map<UUID, BuilderEntityRenderForwarder> playerFollowers = new HashMap<>();
     private final List<AABB> mutableCollidingAABBs = new ArrayList<>();
     private final Set<BlockPos> knownAirBlocks = new HashSet<>();
+    private final ParkedVehicleManager parkedVehicleManager;
 
 
     protected final Level world;
@@ -163,6 +164,7 @@ public class WrapperWorld extends AWrapperWorld {
                 throw new IllegalStateException("Could not load saved data from disk!  This will result in data loss if we continue!");
             }
         }
+        this.parkedVehicleManager = world.isClientSide ? null : new ParkedVehicleManager(this, (ServerLevel) world);
         NeoForge.EVENT_BUS.register(this);
     }
 
@@ -279,6 +281,16 @@ public class WrapperWorld extends AWrapperWorld {
     @Override
     public void spawnEntity(AEntityB_Existing entity) {
         spawnEntityInternal(entity);
+    }
+
+    @Override
+    public boolean supportsVehicleParking() {
+        return parkedVehicleManager != null;
+    }
+
+    @Override
+    public boolean parkVehicle(EntityVehicleF_Physics vehicle) {
+        return parkedVehicleManager != null && parkedVehicleManager.park(vehicle);
     }
 
     /**
@@ -1061,6 +1073,7 @@ public class WrapperWorld extends AWrapperWorld {
         //Note that the client world never calls this method: to do client ticks we need to use the client interface.
         if (!event.getLevel().isClientSide() && event.getLevel().equals(world)) {
             tickAll(true);
+            parkedVehicleManager.tick();
 
             for (Player mcPlayer : event.getLevel().players()) {
                 UUID playerUUID = mcPlayer.getUUID();
