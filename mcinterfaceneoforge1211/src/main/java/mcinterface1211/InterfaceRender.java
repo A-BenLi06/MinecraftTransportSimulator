@@ -36,6 +36,10 @@ import com.mojang.blaze3d.vertex.VertexFormat.Mode;
 import minecrafttransportsimulator.baseclasses.Point3D;
 import minecrafttransportsimulator.baseclasses.TransformationMatrix;
 import minecrafttransportsimulator.entities.components.AEntityC_Renderable;
+import minecrafttransportsimulator.entities.components.AEntityE_Interactable;
+import minecrafttransportsimulator.entities.instances.APart;
+import minecrafttransportsimulator.entities.instances.EntityVehicleF_Physics;
+import minecrafttransportsimulator.baseclasses.VehicleParkingState;
 import minecrafttransportsimulator.guis.components.AGUIBase;
 import minecrafttransportsimulator.guis.components.GUIComponentItem;
 import minecrafttransportsimulator.mcinterface.AWrapperWorld;
@@ -98,6 +102,7 @@ public class InterfaceRender implements IInterfaceRender {
     public static MultiBufferSource renderBuffer;
     public static Point3D renderCameraOffset = new Point3D();
     private static boolean renderingGUI;
+    private static Frustum renderFrustum;
 
     private static ShaderInstance entityLightsShader;
     private static ShaderInstance entityCutoutNoshadowsShader;
@@ -129,6 +134,7 @@ public class InterfaceRender implements IInterfaceRender {
             @Override
             public boolean shouldRender(BuilderEntityRenderForwarder builder, Frustum camera, double camX, double camY, double camZ) {
                 //Always render the forwarder, no matter where the camera is.
+                renderFrustum = camera;
                 return true;
             }
 
@@ -308,6 +314,9 @@ public class InterfaceRender implements IInterfaceRender {
             //NOTE: this operation occurs on a ConcurrentLinkedQueue.  Therefore, updates will
             //not occur one after another.  Sanitize your inputs!
             for (AEntityC_Renderable entity : allEntities) {
+                if (!shouldRenderEntity(entity)) {
+                    continue;
+                }
                 matrixStack.pushPose();
                 matrixStack.translate(entity.position.x - renderCameraOffset.x, entity.position.y - renderCameraOffset.y, entity.position.z - renderCameraOffset.z);
                 entity.render(blendingEnabled, partialTicks);
@@ -321,6 +330,24 @@ public class InterfaceRender implements IInterfaceRender {
                 world.endProfiling();
             }
         }
+    }
+
+    private static boolean shouldRenderEntity(AEntityC_Renderable entity) {
+        boolean parked = entity instanceof EntityVehicleF_Physics && ((EntityVehicleF_Physics) entity).getParkingState() == VehicleParkingState.PARKED;
+        if (entity instanceof APart) {
+            AEntityE_Interactable<?> master = ((APart) entity).masterEntity;
+            parked = master instanceof EntityVehicleF_Physics && ((EntityVehicleF_Physics) master).getParkingState() == VehicleParkingState.PARKED;
+        }
+        if (parked) {
+            double renderDistance = Math.max(0D, ConfigSystem.settings.parking.clientRenderDistance.value);
+            double deltaX = entity.position.x - renderCameraOffset.x;
+            double deltaY = entity.position.y - renderCameraOffset.y;
+            double deltaZ = entity.position.z - renderCameraOffset.z;
+            if (renderDistance == 0D || deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ > renderDistance * renderDistance) {
+                return false;
+            }
+        }
+        return renderFrustum == null || !(entity instanceof AEntityE_Interactable) || renderFrustum.isVisible(WrapperWorld.convert(((AEntityE_Interactable<?>) entity).encompassingBox));
     }
 
     private static void renderBuffers(float partialTicks) {

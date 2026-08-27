@@ -100,6 +100,8 @@ import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.capabilities.Capabilities;
 import net.neoforged.neoforge.event.tick.LevelTickEvent;
 import net.neoforged.neoforge.event.level.LevelEvent;
+import net.neoforged.neoforge.event.level.ChunkWatchEvent;
+import net.neoforged.neoforge.event.level.ExplosionEvent;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.items.IItemHandler;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -122,6 +124,7 @@ public class WrapperWorld extends AWrapperWorld {
     private final List<AABB> mutableCollidingAABBs = new ArrayList<>();
     private final Set<BlockPos> knownAirBlocks = new HashSet<>();
     private final ParkedVehicleManager parkedVehicleManager;
+    private final ParkedVehicleClientManager parkedVehicleClientManager;
 
 
     protected final Level world;
@@ -165,6 +168,7 @@ public class WrapperWorld extends AWrapperWorld {
             }
         }
         this.parkedVehicleManager = world.isClientSide ? null : new ParkedVehicleManager(this, (ServerLevel) world);
+        this.parkedVehicleClientManager = world.isClientSide ? new ParkedVehicleClientManager(this) : null;
         NeoForge.EVENT_BUS.register(this);
     }
 
@@ -291,6 +295,34 @@ public class WrapperWorld extends AWrapperWorld {
     @Override
     public boolean parkVehicle(EntityVehicleF_Physics vehicle) {
         return parkedVehicleManager != null && parkedVehicleManager.park(vehicle);
+    }
+
+    @Override
+    public void updateParkedVehicleProxy(UUID vehicleId, long generation, String entityId, int chunkIndex, int totalChunks, byte[] compressedDataChunk) {
+        if (parkedVehicleClientManager != null) {
+            parkedVehicleClientManager.update(vehicleId, generation, entityId, chunkIndex, totalChunks, compressedDataChunk);
+        }
+    }
+
+    @Override
+    public void tickParkedVehicleProxies() {
+        if (parkedVehicleClientManager != null) {
+            parkedVehicleClientManager.tick();
+        }
+    }
+
+    @Override
+    public boolean wakeParkedVehicle(UUID entityId, String reason) {
+        return parkedVehicleManager != null && parkedVehicleManager.wakeByEntityId(entityId, reason);
+    }
+
+    public List<AABB> getParkedVehicleCollisions(AABB query) {
+        if (parkedVehicleManager != null) {
+            return parkedVehicleManager.getCollisionBoxes(query, true);
+        } else if (parkedVehicleClientManager != null) {
+            return parkedVehicleClientManager.getCollisionBoxes(query);
+        }
+        return new ArrayList<>();
     }
 
     /**
@@ -1140,6 +1172,29 @@ public class WrapperWorld extends AWrapperWorld {
     public void onIVWorldTickPost(LevelTickEvent.Post event) {
         if (!event.getLevel().isClientSide() && event.getLevel().equals(world)) {
             tickAll(false);
+        }
+    }
+
+    @SubscribeEvent
+    public void onIVChunkSent(ChunkWatchEvent.Sent event) {
+        if (parkedVehicleManager != null && event.getLevel() == world) {
+            parkedVehicleManager.onChunkSent(event.getPlayer(), event.getPos());
+        }
+    }
+
+    @SubscribeEvent
+    public void onIVChunkUnwatched(ChunkWatchEvent.UnWatch event) {
+        if (parkedVehicleManager != null && event.getLevel() == world) {
+            parkedVehicleManager.onChunkUnwatched(event.getPlayer(), event.getPos());
+        }
+    }
+
+    @SubscribeEvent
+    public void onIVExplosionStart(ExplosionEvent.Start event) {
+        if (parkedVehicleManager != null && event.getLevel() == world) {
+            Vec3 center = event.getExplosion().center();
+            double radius = event.getExplosion().radius() * 2D + 1D;
+            parkedVehicleManager.wakeInArea(new AABB(center.x - radius, center.y - radius, center.z - radius, center.x + radius, center.y + radius, center.z + radius), "nearby explosion");
         }
     }
 

@@ -264,7 +264,8 @@ public class EntityVehicleF_Physics extends AEntityVehicleE_Powered {
                 return VehicleParkingBlocker.RIDER_PRESENT;
             }
         }
-        if (motion.length() > Math.max(0D, ConfigSystem.settings.parking.maximumLinearSpeed.value)) {
+        double maximumLinearSpeed = Math.max(0D, ConfigSystem.settings.parking.maximumLinearSpeed.value);
+        if (motion.length() > maximumLinearSpeed || position.distanceTo(prevPosition) > maximumLinearSpeed) {
             return VehicleParkingBlocker.LINEAR_MOTION;
         }
         if (rotation.angles.length() > Math.max(0D, ConfigSystem.settings.parking.maximumAngularSpeed.value)) {
@@ -273,10 +274,16 @@ public class EntityVehicleF_Physics extends AEntityVehicleE_Powered {
         if (towedByConnection != null || !towingConnections.isEmpty()) {
             return VehicleParkingBlocker.TOWING_CONNECTION;
         }
+        if (!collidedEntities.isEmpty()) {
+            return VehicleParkingBlocker.COLLISION_ACTIVITY;
+        }
         if (enginesOn || enginesStarting || enginesRunning) {
             return VehicleParkingBlocker.ENGINE_ACTIVITY;
         }
         if (runningLightVar.isActive || headLightVar.isActive || navigationLightVar.isActive || strobeLightVar.isActive || taxiLightVar.isActive || landingLightVar.isActive || hornVar.isActive || beingFueled || gearMovementTime != 0) {
+            return VehicleParkingBlocker.ELECTRICAL_ACTIVITY;
+        }
+        if (!playersInteracting.isEmpty() || radio != null && radio.preset > 0) {
             return VehicleParkingBlocker.ELECTRICAL_ACTIVITY;
         }
         if (autopilotValueVar.currentValue != 0 || !missilesIncoming.isEmpty() || !radarsTracking.isEmpty() || !gunsLockedOn.isEmpty()) {

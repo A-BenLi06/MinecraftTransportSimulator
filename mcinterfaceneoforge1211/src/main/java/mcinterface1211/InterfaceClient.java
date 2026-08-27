@@ -398,6 +398,7 @@ public class InterfaceClient implements IInterfaceClient {
                 //Need to update world brightness since sky darken isn't calculated normally on clients.
                 ((WrapperWorld) world).world.updateSkyBrightness();
 
+                world.tickParkedVehicleProxies();
                 world.tickAll(true);
                     
                 //Complain about Entity Culling mod at 10 second mark.

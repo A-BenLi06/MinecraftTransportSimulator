@@ -91,6 +91,12 @@ public abstract class EntityMixin {
                 }
             }
         }
+        for (AABB parkedCollision : WrapperWorld.getWrapperFor(entity.level()).getParkedVehicleCollisions(pCollisionBox)) {
+            if (vehicleCollisions == null) {
+                vehicleCollisions = new ArrayList<>();
+            }
+            vehicleCollisions.add(Shapes.create(parkedCollision));
+        }
         if (vehicleCollisions != null) {
             if (!existingCollisions.isEmpty()) {
                 Builder<VoxelShape> builder = ImmutableList.builderWithExpectedSize(existingCollisions.size() + vehicleCollisions.size());

@@ -101,6 +101,14 @@ public final class PartInteractable extends APart {
     }
 
     @Override
+    public boolean preventsVehicleParking() {
+        return super.preventsVehicleParking()
+                || crafter != null && crafter.ticksLeftToCraft > 0
+                || linkedPart != null
+                || linkedVehicle != null;
+    }
+
+    @Override
     public boolean interact(IWrapperPlayer player) {
         if (isActiveVar.isActive && (vehicleOn == null || !vehicleOn.lockedVar.isActive)) {
             switch (definition.interactable.interactionType) {

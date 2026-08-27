@@ -111,3 +111,25 @@ The durable record is authoritative throughout both transitions. Every crash bou
 
 - `git diff --check` passed.
 - The complete `mcinterfaceneoforge1211 build` passed with Gradle 8.8. Compilation, resources, assembly, checks, and both module builds completed successfully.
+
+## 2026-08-28T01:20:48+08:00 — Static client proxies, collision, and complete wake triggers
+
+### Changes
+
+- Added chunk-watch-scoped parked snapshot synchronization. Each player receives a proxy only while watching at least one indexed chunk occupied by that vehicle, with overlap reference counts preventing duplicate add/remove traffic.
+- Compressed full render snapshots and split them into independently validated 24 KiB packets. Clients assemble generation-matched chunks before decoding, so large multipart vehicles do not rely on one oversized NBT payload.
+- Added a client-only parked proxy manager. It reconstructs the normal vehicle and parts without a vanilla builder, registers them with `NEVER` update time, performs one explicit geometry/light/bounds initialization pass, and retains no snapshot NBT after construction.
+- Added generation ordering and deferred construction so stale packets cannot replace newer state and a parked proxy cannot duplicate an active builder that is still being removed.
+- Added view-distance and frustum rejection for parked vehicles and their parts. Static proxies also skip per-frame sound, dynamic-light, and particle evaluation while continuing to reuse the existing model/GPU buffer caches.
+- Connected cached parked AABBs to the existing NeoForge entity collision mixin. Server collision queries use the chunk index, return collision for the current movement, and defer the wake transition until the next world tick to avoid entity creation inside the vanilla collision call stack.
+- Added exact click/attack/control wake behavior for both vehicle and part UUIDs. A server-bound entity packet can synchronously wake its parked owner and then replay the original packet against the restored object in the same handler.
+- Added explosion-start wake and conservative activity blockers for recent displacement/teleport-like movement, active collision, open interactions, radios, crafting, and linked fluid transfers.
+
+### Reasoning
+
+The client proxy deliberately uses the original MTS render graph so pack models, text, instruments, and multipart transforms remain compatible, but it is excluded from every update queue and dynamic effect path. Server collision and interaction remain authoritative: cached geometry handles the transition tick, while any operation that needs mutable vehicle state first restores the full entity graph.
+
+### Verification
+
+- `git diff --check` passed.
+- The full `mcinterfaceneoforge1211 build` passed after the networking, rendering, collision, and wake changes. Both `mccore` and NeoForge modules compiled and assembled successfully; only existing deprecation/removal warnings remain.

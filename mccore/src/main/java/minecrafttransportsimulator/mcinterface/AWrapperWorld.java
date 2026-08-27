@@ -146,6 +146,19 @@ public abstract class AWrapperWorld extends EntityManager {
         return false;
     }
 
+    /** Applies a generation-ordered parked render snapshot on supported clients. */
+    public void updateParkedVehicleProxy(UUID vehicleId, long generation, String entityId, int chunkIndex, int totalChunks, byte[] compressedDataChunk) {
+    }
+
+    /** Advances deferred parked proxy construction without adding proxy entities to tick lists. */
+    public void tickParkedVehicleProxies() {
+    }
+
+    /** Restores a parked vehicle owning the supplied vehicle or part UUID. */
+    public boolean wakeParkedVehicle(UUID entityId, String reason) {
+        return false;
+    }
+
     /**
      * Attacks all entities that are in the passed-in damage range.
      * This only includes external entities, and NOT any entities

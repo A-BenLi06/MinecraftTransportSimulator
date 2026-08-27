@@ -176,7 +176,7 @@ public abstract class APart extends AEntityF_Multipart<JSONPart> {
      * must extend this predicate.  Riders always keep the complete vehicle active.
      */
     public boolean preventsVehicleParking() {
-        return rider != null;
+        return rider != null || !playersInteracting.isEmpty() || radio != null && radio.preset > 0;
     }
 
     @Override

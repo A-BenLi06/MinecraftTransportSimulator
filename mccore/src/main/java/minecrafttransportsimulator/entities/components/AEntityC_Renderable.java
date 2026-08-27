@@ -110,9 +110,11 @@ public abstract class AEntityC_Renderable extends AEntityB_Existing {
 
             //Handle sounds.  These will be partial-tick only ones.
             //Normal sounds are handled on the main tick loop.
-            world.beginProfiling("Sounds", true);
-            updateSounds(partialTicks);
-            world.endProfiling();
+            if (getUpdateTime() != EntityAutoUpdateTime.NEVER) {
+                world.beginProfiling("Sounds", true);
+                updateSounds(partialTicks);
+                world.endProfiling();
+            }
         }
     }
 

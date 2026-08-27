@@ -1438,7 +1438,9 @@ public abstract class AEntityD_Definable<JSONDefinition extends AJSONMultiModelP
     protected void renderModel(TransformationMatrix transform, boolean blendingEnabled, float partialTicks) {
         //Update internal lighting states.
         world.beginProfiling("LightStateUpdates", true);
-        updateLightBrightness(partialTicks);
+        if (getUpdateTime() != EntityAutoUpdateTime.NEVER) {
+            updateLightBrightness(partialTicks);
+        }
 
         //Parse model if it hasn't been already.
         world.beginProfiling("MainModel", false);
@@ -1461,7 +1463,7 @@ public abstract class AEntityD_Definable<JSONDefinition extends AJSONMultiModelP
             }
         }
         //Handle particles.  Need to only do this once per frame-render.  Shaders may have us render multiple times.
-        if (!InterfaceManager.clientInterface.isGamePaused() && !(ticksExisted == lastTickParticlesSpawned && partialTicks == lastPartialTickParticlesSpawned)) {
+        if (getUpdateTime() != EntityAutoUpdateTime.NEVER && !InterfaceManager.clientInterface.isGamePaused() && !(ticksExisted == lastTickParticlesSpawned && partialTicks == lastPartialTickParticlesSpawned)) {
             world.beginProfiling("Particles", false);
             spawnParticles(partialTicks);
             lastTickParticlesSpawned = ticksExisted;
