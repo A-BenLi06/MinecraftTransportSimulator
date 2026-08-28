@@ -2,8 +2,11 @@ package minecrafttransportsimulator.rendering;
 
 import java.nio.FloatBuffer;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.WeakHashMap;
 
 import minecrafttransportsimulator.baseclasses.BoundingBox;
 import minecrafttransportsimulator.baseclasses.Point3D;
@@ -27,6 +30,14 @@ public class RenderableVertices {
     public final boolean isTranslucent;
     public final boolean isErrorPlaceholder;
     public final boolean isLines;
+    private long revision;
+
+    /**
+     * Derived meshes are immutable snapshots and can be shared by every renderable using the
+     * same parsed base object.  Weak keys ensure a resource reload does not keep the base model
+     * alive merely because a derived mesh was requested in a prior resource generation.
+     */
+    private static final Map<RenderableVertices, DerivedGeometry> DERIVED_GEOMETRY = new WeakHashMap<>();
 
     /**Index offset array for quad faces required to build a quad-textured box.
      * Order is set here to reference the points in a counter-clockwise order for rendering.
@@ -292,6 +303,24 @@ public class RenderableVertices {
         return offsetObject;
     }
 
+    /**Returns a shared overlay snapshot for this geometry and offset.*/
+    public RenderableVertices getOrCreateOverlay(float offset) {
+        synchronized (DERIVED_GEOMETRY) {
+            DerivedGeometry derived = DERIVED_GEOMETRY.computeIfAbsent(this, key -> new DerivedGeometry(revision));
+            if (derived.sourceRevision != revision) {
+                derived = new DerivedGeometry(revision);
+                DERIVED_GEOMETRY.put(this, derived);
+            }
+            int offsetBits = Float.floatToIntBits(offset);
+            RenderableVertices overlay = derived.overlays.get(offsetBits);
+            if (overlay == null) {
+                overlay = createOverlay(offset);
+                derived.overlays.put(offsetBits, overlay);
+            }
+            return overlay;
+        }
+    }
+
     /**
      * Returns a copy of these vertices in inverted order to create a back-face for this model.
      */
@@ -309,6 +338,54 @@ public class RenderableVertices {
         return backfaceObject;
     }
 
+    /**Returns a shared back-face snapshot for this geometry.*/
+    public RenderableVertices getOrCreateBackface() {
+        synchronized (DERIVED_GEOMETRY) {
+            DerivedGeometry derived = DERIVED_GEOMETRY.computeIfAbsent(this, key -> new DerivedGeometry(revision));
+            if (derived.sourceRevision != revision) {
+                derived = new DerivedGeometry(revision);
+                DERIVED_GEOMETRY.put(this, derived);
+            }
+            if (derived.backface == null) {
+                derived.backface = createBackface();
+            }
+            return derived.backface;
+        }
+    }
+
+    /**Drops all weakly-keyed derived geometry for the current resource generation.*/
+    public static void clearDerivedGeometryCache() {
+        synchronized (DERIVED_GEOMETRY) {
+            DERIVED_GEOMETRY.clear();
+        }
+    }
+
+    /**Returns the number of derived vertex buffers retained for diagnostics and tests.*/
+    public static int getDerivedGeometryCount() {
+        synchronized (DERIVED_GEOMETRY) {
+            int count = 0;
+            for (DerivedGeometry derived : DERIVED_GEOMETRY.values()) {
+                count += derived.overlays.size();
+                if (derived.backface != null) {
+                    ++count;
+                }
+            }
+            return count;
+        }
+    }
+
+    /**Monotonic geometry revision used by renderer-side immutable buffer keys.*/
+    public long getRevision() {
+        return revision;
+    }
+
+    private void markGeometryChanged() {
+        ++revision;
+        synchronized (DERIVED_GEOMETRY) {
+            DERIVED_GEOMETRY.remove(this);
+        }
+    }
+
     /**
      * Adds a line to the {@link #vertices} of this object using Point3D objects.
      * If the last line is added, this function will automatically handle the batch ending.
@@ -322,6 +399,7 @@ public class RenderableVertices {
      * If the last line is added, this function will automatically handle the batch ending.
      */
     public void addLine(float startX, float startY, float startZ, float endX, float endY, float endZ) {
+        markGeometryChanged();
         vertices.put(startX);
         vertices.put(startY);
         vertices.put(startZ);
@@ -338,6 +416,7 @@ public class RenderableVertices {
      * The vertex data will be centered at 0,0,0.
      */
     public void setBoundingBox(BoundingBox box, boolean wireframe) {
+        markGeometryChanged();
         if (wireframe) {
             for (List<BoxOffset> indexes : WIREFRAME_POINT_INDEXES) {
                 vertices.put(indexes.get(0).getEdgePoint(box));
@@ -367,32 +446,47 @@ public class RenderableVertices {
      * Sets for every quad in the texture for objects created via {@link #createSprite(int, List, List)}
      */
     public void setTextureBounds(float u, float U, float v, float V) {
+        boolean changed = false;
         int verticesInObject = vertices.capacity() / FLOATS_PER_VERTEX;
         for (int vertexIndex = 0; vertexIndex < verticesInObject; ++vertexIndex) {
+            float newU;
+            float newV;
             switch (vertexIndex % VERTEXES_PER_QUAD) {
                 case (QUAD_TRI1_BOTTOM_RIGHT_INDEX):
                 case (QUAD_TRI2_BOTTOM_RIGHT_INDEX): {
-                    vertices.put(vertexIndex * FLOATS_PER_VERTEX + VERTEX_BUFFER_U_OFFSET, U);
-                    vertices.put(vertexIndex * FLOATS_PER_VERTEX + VERTEX_BUFFER_V_OFFSET, V);
+                    newU = U;
+                    newV = V;
                     break;
                 }
                 case (QUAD_TRI1_TOP_RIGHT_INDEX): {
-                    vertices.put(vertexIndex * FLOATS_PER_VERTEX + VERTEX_BUFFER_U_OFFSET, U);
-                    vertices.put(vertexIndex * FLOATS_PER_VERTEX + VERTEX_BUFFER_V_OFFSET, v);
+                    newU = U;
+                    newV = v;
                     break;
                 }
                 case (QUAD_TRI1_TOP_LEFT_INDEX):
                 case (QUAD_TRI2_TOP_LEFT_INDEX): {
-                    vertices.put(vertexIndex * FLOATS_PER_VERTEX + VERTEX_BUFFER_U_OFFSET, u);
-                    vertices.put(vertexIndex * FLOATS_PER_VERTEX + VERTEX_BUFFER_V_OFFSET, v);
+                    newU = u;
+                    newV = v;
                     break;
                 }
                 case (QUAD_TRI2_BOTTOM_LEFT_INDEX): {
-                    vertices.put(vertexIndex * FLOATS_PER_VERTEX + VERTEX_BUFFER_U_OFFSET, u);
-                    vertices.put(vertexIndex * FLOATS_PER_VERTEX + VERTEX_BUFFER_V_OFFSET, V);
+                    newU = u;
+                    newV = V;
                     break;
                 }
+                default:
+                    throw new IllegalStateException("Unexpected quad vertex index.");
             }
+            int uIndex = vertexIndex * FLOATS_PER_VERTEX + VERTEX_BUFFER_U_OFFSET;
+            int vIndex = vertexIndex * FLOATS_PER_VERTEX + VERTEX_BUFFER_V_OFFSET;
+            if (vertices.get(uIndex) != newU || vertices.get(vIndex) != newV) {
+                vertices.put(uIndex, newU);
+                vertices.put(vIndex, newV);
+                changed = true;
+            }
+        }
+        if (changed) {
+            markGeometryChanged();
         }
     }
 
@@ -408,6 +502,7 @@ public class RenderableVertices {
      * Like {@link #setSpriteProperties(int, int, int, int, int, float, float, float, float)}, but with each texture coordinate specified.
      */
     public void setSpritePropertiesAdvancedTexture(int spriteIndex, int offsetX, int offsetY, int width, int height, float u1, float v1, float u2, float v2, float u3, float v3, float u4, float v4) {
+        markGeometryChanged();
         //Now populate the buffer.
         for (int vertexIndex = spriteIndex * VERTEXES_PER_QUAD; vertexIndex < (spriteIndex + 1) * VERTEXES_PER_QUAD; ++vertexIndex) {
             int quadVertexIndex = vertexIndex % VERTEXES_PER_QUAD;
@@ -443,6 +538,16 @@ public class RenderableVertices {
                     break;
                 }
             }
+        }
+    }
+
+    private static final class DerivedGeometry {
+        private final long sourceRevision;
+        private final Map<Integer, RenderableVertices> overlays = new HashMap<>();
+        private RenderableVertices backface;
+
+        private DerivedGeometry(long sourceRevision) {
+            this.sourceRevision = sourceRevision;
         }
     }
 

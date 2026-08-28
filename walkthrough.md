@@ -215,3 +215,24 @@ This stage removes allocation bursts at their source and ensures cached model re
 
 - The complete NeoForge test suite passed with 13 tests and no failures after compiling both the Java 8 core and Java 21 interface source sets.
 - `git diff --check` passed.
+
+## 2026-08-28T11:07:11+08:00 — Lazy geometry, bounded model residency, and shared GPU buffers
+
+### Changes
+
+- Deferred window back-faces, emissive overlays, light covers, flares, and beam meshes until the corresponding render pass and enabled feature actually needs them.
+- Added weak, revision-aware sharing for back-face and overlay vertex snapshots. Source geometry mutations invalidate future derived lookups without retaining obsolete resource generations.
+- Released every lazily created renderable during entity teardown; previously only the primary renderable was destroyed, leaving auxiliary cached GPU allocations behind.
+- Replaced the NeoForge 1.21.1 per-renderable static VBO map with immutable geometry-and-attribute keys plus reference-counted bindings. Identical model instances now share uploaded vertex buffers, while texture/shader-only state changes avoid needless re-uploads.
+- Added a configurable, weighted access-order parsed-model cache (`modelCacheMaxMiB`, 256 MiB by default, 0 for unlimited). The cache retains at most the budget or one individually oversized model, and eager preloading stops at the configured limit instead of churning the LRU.
+- Added regression coverage for derived-geometry sharing, revision invalidation, resource-generation clearing, and weighted LRU eviction.
+
+### Reasoning
+
+The original allocation pattern multiplied CPU vertex copies and native GPU buffers by entity count, including optional effects that might never render. Sharing immutable geometry at both the CPU and GPU layers removes that multiplier, while lazy construction and weighted residency bound the remaining session footprint without forcing repeated parsing of one oversized model.
+
+### Verification
+
+- The Java 8 core and Java 21 NeoForge interface compiled successfully with Gradle 8.8 on Temurin 21.0.12.
+- The complete NeoForge JUnit suite passed with 16 tests, 0 failures, and 0 errors.
+- `git diff --check` passed.

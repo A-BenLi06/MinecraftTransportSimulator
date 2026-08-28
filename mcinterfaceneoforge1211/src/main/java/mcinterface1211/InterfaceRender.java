@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -48,6 +49,7 @@ import minecrafttransportsimulator.mcinterface.InterfaceManager;
 import minecrafttransportsimulator.rendering.GIFParser.GIFImageFrame;
 import minecrafttransportsimulator.rendering.GIFParser.ParsedGIF;
 import minecrafttransportsimulator.rendering.RenderableData;
+import minecrafttransportsimulator.rendering.RenderableVertices;
 import minecrafttransportsimulator.systems.ConfigSystem;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
@@ -85,7 +87,9 @@ public class InterfaceRender implements IInterfaceRender {
     private static final List<GUIComponentItem> stacksToRender = new ArrayList<>();
 
     private static final ConcurrentHashMap<String, RenderType> renderTypes = new ConcurrentHashMap<>();
-    private static final ConcurrentHashMap<RenderableData, BufferData> buffers = new ConcurrentHashMap<>();
+    private static final Object bufferLock = new Object();
+    private static final Map<BufferKey, BufferData> sharedBuffers = new HashMap<>();
+    private static final Map<RenderableData, BufferBinding> bufferBindings = new IdentityHashMap<>();
     private static final ConcurrentHashMap<RenderType, List<RenderData>> queuedRenders = new ConcurrentHashMap<>();
     private static final ConcurrentLinkedQueue<BufferData> removedRenders = new ConcurrentLinkedQueue<>();
 
@@ -239,31 +243,31 @@ public class InterfaceRender implements IInterfaceRender {
             if (data.vertexObject.cacheVertices && !renderingGUI && ConfigSystem.client.renderingSettings.renderingMode.value != 2) {
             	//Get the render type and data buffer for this entity.
                 renderType = renderTypes.computeIfAbsent(typeID, k -> CustomRenderType.create("mts_entity", DefaultVertexFormat.NEW_ENTITY, VertexFormat.Mode.TRIANGLES, 2097152, true, data.isTranslucent, CustomRenderType.createForObject(data).createCompositeState(false)));
-                BufferData bufferData = buffers.computeIfAbsent(data, k -> new BufferData(renderType, data));
-            
-                //Reset buffer if it's not ready.
-                if (changedSinceLastRender) {
-                    bufferData.isReady = false;
-                }
-                if (!bufferData.isReady) {
-                    BufferBuilder tempBuilder = new BufferBuilder(bufferData.byteBufferBuilder, VertexFormat.Mode.TRIANGLES, renderType.format());
-                    while (data.vertexObject.vertices.hasRemaining()) {
-                        //Need to parse these out first since our order differs.
-                        float normalX = data.vertexObject.vertices.get();
-                        float normalY = data.vertexObject.vertices.get();
-                        float normalZ = data.vertexObject.vertices.get();
-                        float texU = data.vertexObject.vertices.get();
-                        float texV = data.vertexObject.vertices.get();
-                        float posX = data.vertexObject.vertices.get();
-                        float posY = data.vertexObject.vertices.get();
-                        float posZ = data.vertexObject.vertices.get();
-                        tempBuilder.addVertex(posX, posY, posZ).setColor(data.color.red, data.color.green, data.color.blue, data.alpha).setUv(texU, texV).setOverlay(OverlayTexture.NO_OVERLAY).setLight(data.worldLightValue).setNormal(normalX, normalY, normalZ);
+                BufferData bufferData = acquireBuffer(renderType, data);
+
+                //The immutable buffer key captures every vertex attribute.  A state change that
+                //does not affect vertex bytes (texture, shader, blending) keeps sharing the VBO.
+                synchronized (bufferData) {
+                    if (!bufferData.isReady) {
+                        BufferBuilder tempBuilder = new BufferBuilder(bufferData.byteBufferBuilder, VertexFormat.Mode.TRIANGLES, renderType.format());
+                        while (data.vertexObject.vertices.hasRemaining()) {
+                            //Need to parse these out first since our order differs.
+                            float normalX = data.vertexObject.vertices.get();
+                            float normalY = data.vertexObject.vertices.get();
+                            float normalZ = data.vertexObject.vertices.get();
+                            float texU = data.vertexObject.vertices.get();
+                            float texV = data.vertexObject.vertices.get();
+                            float posX = data.vertexObject.vertices.get();
+                            float posY = data.vertexObject.vertices.get();
+                            float posZ = data.vertexObject.vertices.get();
+                            tempBuilder.addVertex(posX, posY, posZ).setColor(data.color.red, data.color.green, data.color.blue, data.alpha).setUv(texU, texV).setOverlay(OverlayTexture.NO_OVERLAY).setLight(data.worldLightValue).setNormal(normalX, normalY, normalZ);
+                        }
+                        bufferData.isReady = true;
+                        bufferData.buffer.bind();
+                        bufferData.buffer.upload(tempBuilder.buildOrThrow());
+                        data.vertexObject.vertices.rewind();
+                        VertexBuffer.unbind();
                     }
-                    bufferData.isReady = true;
-                    bufferData.buffer.bind();
-                    bufferData.buffer.upload(tempBuilder.buildOrThrow());
-                    data.vertexObject.vertices.rewind();
-                    VertexBuffer.unbind();
                 }
             
                 //Add this buffer to the list to render later.
@@ -492,11 +496,40 @@ public class InterfaceRender implements IInterfaceRender {
             //Make sure we actually bound a buffer; just because the main system asks for a bound buffer,
     	    //doesn't mean we actually can give it one.  GUI models are one such case, as they don't work right
             //with bound buffers due to matrix differences.
-            BufferData buffer = buffers.remove(data);
-            if (buffer != null) {
-                removedRenders.add(buffer);
+            synchronized (bufferLock) {
+                releaseBinding(data);
             }
-    	}
+        }
+    }
+
+    private static BufferData acquireBuffer(RenderType renderType, RenderableData data) {
+        BufferKey key = new BufferKey(data);
+        synchronized (bufferLock) {
+            BufferBinding existingBinding = bufferBindings.get(data);
+            if (existingBinding != null && existingBinding.key.equals(key)) {
+                return existingBinding.buffer;
+            }
+            if (existingBinding != null) {
+                releaseBinding(data);
+            }
+
+            BufferData buffer = sharedBuffers.get(key);
+            if (buffer == null) {
+                buffer = new BufferData(renderType, data);
+                sharedBuffers.put(key, buffer);
+            }
+            ++buffer.references;
+            bufferBindings.put(data, new BufferBinding(key, buffer));
+            return buffer;
+        }
+    }
+
+    private static void releaseBinding(RenderableData data) {
+        BufferBinding binding = bufferBindings.remove(data);
+        if (binding != null && --binding.buffer.references == 0) {
+            sharedBuffers.remove(binding.key);
+            removedRenders.add(binding.buffer);
+        }
     }
 
     @Override
@@ -723,6 +756,7 @@ public class InterfaceRender implements IInterfaceRender {
         final ByteBufferBuilder byteBufferBuilder;
         final VertexBuffer buffer;
         boolean isReady;
+        int references;
 
         private BufferData() {
             byteBufferBuilder = null;
@@ -743,6 +777,60 @@ public class InterfaceRender implements IInterfaceRender {
         private void close() {
             buffer.close();
             byteBufferBuilder.close();
+        }
+    }
+
+    private static final class BufferBinding {
+        private final BufferKey key;
+        private final BufferData buffer;
+
+        private BufferBinding(BufferKey key, BufferData buffer) {
+            this.key = key;
+            this.buffer = buffer;
+        }
+    }
+
+    /**Identity-based geometry plus the attributes baked into NEW_ENTITY vertex bytes.*/
+    private static final class BufferKey {
+        private final RenderableVertices vertices;
+        private final long revision;
+        private final int redBits;
+        private final int greenBits;
+        private final int blueBits;
+        private final int alphaBits;
+        private final int worldLight;
+
+        private BufferKey(RenderableData data) {
+            this.vertices = data.vertexObject;
+            this.revision = data.vertexObject.getRevision();
+            this.redBits = Float.floatToIntBits(data.color.red);
+            this.greenBits = Float.floatToIntBits(data.color.green);
+            this.blueBits = Float.floatToIntBits(data.color.blue);
+            this.alphaBits = Float.floatToIntBits(data.alpha);
+            this.worldLight = data.worldLightValue;
+        }
+
+        @Override
+        public int hashCode() {
+            int result = System.identityHashCode(vertices);
+            result = 31 * result + (int) (revision ^ revision >>> 32);
+            result = 31 * result + redBits;
+            result = 31 * result + greenBits;
+            result = 31 * result + blueBits;
+            result = 31 * result + alphaBits;
+            return 31 * result + worldLight;
+        }
+
+        @Override
+        public boolean equals(Object object) {
+            if (this == object) {
+                return true;
+            }
+            if (!(object instanceof BufferKey)) {
+                return false;
+            }
+            BufferKey other = (BufferKey) object;
+            return vertices == other.vertices && revision == other.revision && redBits == other.redBits && greenBits == other.greenBits && blueBits == other.blueBits && alphaBits == other.alphaBits && worldLight == other.worldLight;
         }
     }
 

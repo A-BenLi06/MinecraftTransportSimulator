@@ -49,11 +49,13 @@ public class RenderableModelObject {
     private final JSONAnimatedObject objectDef;
     private final JSONLight lightDef;
     private final AnimationSwitchbox switchbox;
-    private final RenderableData interiorWindowRenderable;
-    private final RenderableData colorRenderable;
-    private final RenderableData flareRenderable;
-    private final RenderableData beamRenderable;
-    private final RenderableData coverRenderable;
+    private RenderableData interiorWindowRenderable;
+    private RenderableData colorRenderable;
+    private RenderableData flareRenderable;
+    private RenderableData beamRenderable;
+    private RenderableData coverRenderable;
+    private boolean flareCreationAttempted;
+    private boolean beamCreationAttempted;
     private final List<Double[]> treadPoints;
 
     private static final TransformationMatrix treadPathBaseTransform = new TransformationMatrix();
@@ -81,73 +83,16 @@ public class RenderableModelObject {
         if (isWindow) {
             this.renderable = new RenderableData(vertexObject, "mts:textures/rendering/glass.png");
             renderable.vertexObject.setTextureBounds(0, 1, 0, 1);
-            this.interiorWindowRenderable = new RenderableData(vertexObject.createBackface(), "mts:textures/rendering/glass.png");
         } else {
             this.renderable = new RenderableData(vertexObject);
-            this.interiorWindowRenderable = null;
         }
 
-        //Create light objects.
+        //Only mark the main light mesh here.  Auxiliary geometry can be large and most of it is
+        //never rendered, so overlays, flares, beams, covers, and window back-faces are lazy.
         if (lightDef != null) {
-            if (lightDef.emissive) {
-                this.colorRenderable = new RenderableData(vertexObject.createOverlay(COLOR_OFFSET), "mts:textures/rendering/light.png");
-                if (ConfigSystem.client.renderingSettings.lightsTransp.value) {
-                    colorRenderable.setTransucentOverride();
-                }
-            } else {
-                this.colorRenderable = null;
-            }
             if (lightDef.isBeam) {
                 renderable.setTransucentOverride();
             }
-            if (lightDef.blendableComponents != null && !lightDef.blendableComponents.isEmpty()) {
-                List<JSONLightBlendableComponent> flareDefs = new ArrayList<>();
-                List<JSONLightBlendableComponent> beamDefs = new ArrayList<>();
-                for (JSONLightBlendableComponent component : lightDef.blendableComponents) {
-                    if (component.flareHeight > 0) {
-                        flareDefs.add(component);
-                    }
-                    if (component.beamDiameter > 0) {
-                        beamDefs.add(component);
-                    }
-                }
-                if (!flareDefs.isEmpty()) {
-                    List<TransformationMatrix> flareTransforms = new ArrayList<>();
-                    List<Point3D> flareNormals = new ArrayList<>();
-                    for (JSONLightBlendableComponent flareDef : flareDefs) {
-                        //Get the matrix  that is needed to rotate points to the normalized vector.
-                        TransformationMatrix transform = new TransformationMatrix();
-                        transform.applyTranslation(flareDef.axis.copy().scale(FLARE_OFFSET).add(flareDef.pos));
-                        transform.applyRotation(new RotationMatrix().setToVector(flareDef.axis, false));
-                        transform.applyScaling(flareDef.flareWidth, flareDef.flareHeight, 1);
-                        flareTransforms.add(transform);
-                        flareNormals.add(flareDef.axis);
-                    }
-                    this.flareRenderable = new RenderableData(RenderableVertices.createSprite(flareDefs.size(), flareTransforms, flareNormals), "mts:textures/rendering/lensflare.png");
-                    flareRenderable.setTransucentOverride();
-                } else {
-                    this.flareRenderable = null;
-                }
-                if (!beamDefs.isEmpty()) {
-                    this.beamRenderable = new RenderableData(RenderableVertices.createLightBeams(beamDefs), "mts:textures/rendering/lightbeam.png");
-                    beamRenderable.setTransucentOverride();
-                } else {
-                    this.beamRenderable = null;
-                }
-            } else {
-                this.flareRenderable = null;
-                this.beamRenderable = null;
-            }
-            if (lightDef.covered) {
-                this.coverRenderable = new RenderableData(renderable.vertexObject.createOverlay(COVER_OFFSET), "mts:textures/rendering/glass.png");
-            } else {
-                this.coverRenderable = null;
-            }
-        } else {
-            this.colorRenderable = null;
-            this.flareRenderable = null;
-            this.beamRenderable = null;
-            this.coverRenderable = null;
         }
 
         //If we are a tread, create tread points.
@@ -279,7 +224,8 @@ public class RenderableModelObject {
                         renderable.render();
 
                         //Render interior window if we have one.
-                        if (interiorWindowRenderable != null && ConfigSystem.client.renderingSettings.innerWindows.value) {
+                        if (isWindow && ConfigSystem.client.renderingSettings.innerWindows.value) {
+                            RenderableData interiorWindowRenderable = getInteriorWindowRenderable();
                             interiorWindowRenderable.setLightValue(renderable.worldLightValue);
                             interiorWindowRenderable.transform.set(renderable.transform);
                             interiorWindowRenderable.render();
@@ -291,7 +237,8 @@ public class RenderableModelObject {
             //Check if we are a light that's not a beam.  If so, do light-specific rendering.
             if (lightDef != null && !lightDef.isBeam) {
                 ColorRGB color = entity.lightColorValues.get(lightDef);
-                if (colorRenderable != null && lightLevel > 0) {
+                if (lightDef.emissive && lightLevel > 0) {
+                    RenderableData colorRenderable = getColorRenderable();
                     //Color renderable might or might not be translucent depending on current alpha state.
                     colorRenderable.setAlpha(lightLevel);
                     if (blendingEnabled == colorRenderable.isTranslucent) {
@@ -309,7 +256,8 @@ public class RenderableModelObject {
                     //First render all flares, then render all beams.
                     float blendableBrightness = Math.min((1 - entity.world.getLightBrightness(entity.position, false)) * lightLevel, 1);
                     if (blendableBrightness > 0) {
-                        if (flareRenderable != null && ConfigSystem.client.renderingSettings.renderFlares.value) {
+                        RenderableData flareRenderable = ConfigSystem.client.renderingSettings.renderFlares.value ? getFlareRenderable() : null;
+                        if (flareRenderable != null) {
                             flareRenderable.setLightValue(renderable.worldLightValue);
                             flareRenderable.setLightMode(ConfigSystem.client.renderingSettings.brightLights.value ? LightingMode.IGNORE_ALL_LIGHTING : LightingMode.NORMAL);
                             flareRenderable.setColor(color);
@@ -317,7 +265,8 @@ public class RenderableModelObject {
                             flareRenderable.transform.set(renderable.transform);
                             flareRenderable.render();
                         }
-                        if (beamRenderable != null && ConfigSystem.client.renderingSettings.renderBeams.value) {
+                        RenderableData beamRenderable = ConfigSystem.client.renderingSettings.renderBeams.value ? getBeamRenderable() : null;
+                        if (beamRenderable != null) {
                             beamRenderable.setLightValue(renderable.worldLightValue);
                             beamRenderable.setLightMode(ConfigSystem.client.renderingSettings.brightLights.value ? LightingMode.IGNORE_ALL_LIGHTING : LightingMode.NORMAL);
                             beamRenderable.setBlending(ConfigSystem.client.renderingSettings.blendedLights.value);
@@ -328,7 +277,8 @@ public class RenderableModelObject {
                         }
                     }
                 }
-                if (!blendingEnabled && coverRenderable != null) {
+                if (!blendingEnabled && lightDef.covered) {
+                    RenderableData coverRenderable = getCoverRenderable();
                     //Light cover detected on solid render pass.
                     coverRenderable.setLightValue(renderable.worldLightValue);
                     coverRenderable.setLightMode(ConfigSystem.client.renderingSettings.brightLights.value && lightLevel > 0 ? LightingMode.IGNORE_ALL_LIGHTING : LightingMode.NORMAL);
@@ -356,6 +306,85 @@ public class RenderableModelObject {
      */
     public void destroy() {
         renderable.destroy();
+        destroyIfPresent(interiorWindowRenderable);
+        destroyIfPresent(colorRenderable);
+        destroyIfPresent(flareRenderable);
+        destroyIfPresent(beamRenderable);
+        destroyIfPresent(coverRenderable);
+    }
+
+    private RenderableData getInteriorWindowRenderable() {
+        if (interiorWindowRenderable == null) {
+            interiorWindowRenderable = new RenderableData(renderable.vertexObject.getOrCreateBackface(), "mts:textures/rendering/glass.png");
+        }
+        return interiorWindowRenderable;
+    }
+
+    private RenderableData getColorRenderable() {
+        if (colorRenderable == null) {
+            colorRenderable = new RenderableData(renderable.vertexObject.getOrCreateOverlay(COLOR_OFFSET), "mts:textures/rendering/light.png");
+            if (ConfigSystem.client.renderingSettings.lightsTransp.value) {
+                colorRenderable.setTransucentOverride();
+            }
+        }
+        return colorRenderable;
+    }
+
+    private RenderableData getCoverRenderable() {
+        if (coverRenderable == null) {
+            coverRenderable = new RenderableData(renderable.vertexObject.getOrCreateOverlay(COVER_OFFSET), "mts:textures/rendering/glass.png");
+        }
+        return coverRenderable;
+    }
+
+    private RenderableData getFlareRenderable() {
+        if (!flareCreationAttempted) {
+            flareCreationAttempted = true;
+            List<TransformationMatrix> transforms = new ArrayList<>();
+            List<Point3D> normals = new ArrayList<>();
+            if (lightDef.blendableComponents != null) {
+                for (JSONLightBlendableComponent component : lightDef.blendableComponents) {
+                    if (component.flareHeight > 0) {
+                        TransformationMatrix transform = new TransformationMatrix();
+                        transform.applyTranslation(component.axis.copy().scale(FLARE_OFFSET).add(component.pos));
+                        transform.applyRotation(new RotationMatrix().setToVector(component.axis, false));
+                        transform.applyScaling(component.flareWidth, component.flareHeight, 1);
+                        transforms.add(transform);
+                        normals.add(component.axis);
+                    }
+                }
+            }
+            if (!transforms.isEmpty()) {
+                flareRenderable = new RenderableData(RenderableVertices.createSprite(transforms.size(), transforms, normals), "mts:textures/rendering/lensflare.png");
+                flareRenderable.setTransucentOverride();
+            }
+        }
+        return flareRenderable;
+    }
+
+    private RenderableData getBeamRenderable() {
+        if (!beamCreationAttempted) {
+            beamCreationAttempted = true;
+            List<JSONLightBlendableComponent> beamDefs = new ArrayList<>();
+            if (lightDef.blendableComponents != null) {
+                for (JSONLightBlendableComponent component : lightDef.blendableComponents) {
+                    if (component.beamDiameter > 0) {
+                        beamDefs.add(component);
+                    }
+                }
+            }
+            if (!beamDefs.isEmpty()) {
+                beamRenderable = new RenderableData(RenderableVertices.createLightBeams(beamDefs), "mts:textures/rendering/lightbeam.png");
+                beamRenderable.setTransucentOverride();
+            }
+        }
+        return beamRenderable;
+    }
+
+    private static void destroyIfPresent(RenderableData renderable) {
+        if (renderable != null) {
+            renderable.destroy();
+        }
     }
 
     private boolean shouldRender(AEntityD_Definable<?> entity, boolean blendingEnabled, float partialTicks) {

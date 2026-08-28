@@ -97,6 +97,11 @@ public class InterfaceClient implements IInterfaceClient {
         if (modelsToPreload == null || preloadIndex >= modelsToPreload.size()) {
             return;
         }
+        if (AModelParser.isModelCacheAtCapacity()) {
+            InterfaceManager.coreInterface.logError("MTS model preload stopped at the configured cache limit after " + preloadIndex + " models.");
+            preloadIndex = modelsToPreload.size();
+            return;
+        }
         int end = Math.min(preloadIndex + MODELS_PER_TICK, modelsToPreload.size());
         for (int i = preloadIndex; i < end; i++) {
             try {

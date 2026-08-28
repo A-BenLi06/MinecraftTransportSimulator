@@ -3,11 +3,15 @@ package minecrafttransportsimulator.rendering;
 import java.nio.FloatBuffer;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 
 import minecrafttransportsimulator.entities.components.AEntityD_Definable;
 import minecrafttransportsimulator.mcinterface.InterfaceManager;
+import minecrafttransportsimulator.systems.ConfigSystem;
 
 /**
  * Abstract class for parsing models.  This contains methods for determining what models
@@ -20,7 +24,8 @@ import minecrafttransportsimulator.mcinterface.InterfaceManager;
  */
 public abstract class AModelParser {
     private static final Map<String, AModelParser> parsers = new HashMap<>();
-    private static final Map<String, List<RenderableVertices>> parsedVertices = new HashMap<>();
+    private static final Map<String, List<RenderableVertices>> parsedVertices = new LinkedHashMap<>(16, 0.75F, true);
+    private static long parsedVertexDataBytes;
     private static List<RenderableVertices> missingModelTemplate;
     public static final String WINDOW_OBJECT_NAME = "window";
     public static final String ONLINE_TEXTURE_OBJECT_NAME = "url";
@@ -58,7 +63,9 @@ public abstract class AModelParser {
     public static List<RenderableVertices> parseModel(String modelLocation, boolean returnCached) {
         List<RenderableVertices> vertices = null;
         if (returnCached) {
-            vertices = parsedVertices.get(modelLocation);
+            synchronized (parsedVertices) {
+                vertices = parsedVertices.get(modelLocation);
+            }
         }
         if (vertices == null) {
             AModelParser parser = parsers.get(modelLocation.substring(modelLocation.lastIndexOf(".") + 1));
@@ -74,13 +81,13 @@ public abstract class AModelParser {
                     vertices = getMissingModel(modelLocation);
                 }
                 if (returnCached) {
-                    parsedVertices.put(modelLocation, vertices);
+                    cacheParsedModel(modelLocation, vertices);
                 }
             } else {
                 InterfaceManager.coreInterface.logError("No parser found for model format of " + modelLocation.substring(modelLocation.lastIndexOf(".") + 1) + " at: " + modelLocation + ".  Reverting to fallback model.");
                 vertices = getMissingModel(modelLocation);
                 if (returnCached) {
-                    parsedVertices.put(modelLocation, vertices);
+                    cacheParsedModel(modelLocation, vertices);
                 }
             }
         }
@@ -101,21 +108,27 @@ public abstract class AModelParser {
      * Existing renderables keep their own references until entities reset them.
      */
     public static void clearModelCache() {
-        parsedVertices.clear();
+        synchronized (parsedVertices) {
+            parsedVertices.clear();
+            parsedVertexDataBytes = 0L;
+        }
         missingModelTemplate = null;
+        RenderableVertices.clearDerivedGeometryCache();
     }
 
     /**Returns the number of model resources retained by the parsed-model cache.*/
     public static int getCachedModelCount() {
-        return parsedVertices.size();
+        synchronized (parsedVertices) {
+            return parsedVertices.size();
+        }
     }
 
     /**Returns cached float-buffer payload bytes, excluding collection and object overhead.*/
     public static long getCachedVertexDataBytes() {
         long cachedBytes = 0L;
-        for (List<RenderableVertices> modelObjects : parsedVertices.values()) {
-            for (RenderableVertices object : modelObjects) {
-                cachedBytes += (long) object.vertices.capacity() * Float.BYTES;
+        synchronized (parsedVertices) {
+            for (List<RenderableVertices> modelObjects : parsedVertices.values()) {
+                cachedBytes += getVertexDataBytes(modelObjects);
             }
         }
         if (missingModelTemplate != null) {
@@ -124,6 +137,50 @@ public abstract class AModelParser {
             }
         }
         return cachedBytes;
+    }
+
+    /**Returns true when an optional eager preloader should stop before causing LRU churn.*/
+    public static boolean isModelCacheAtCapacity() {
+        long limit = getModelCacheLimitBytes();
+        synchronized (parsedVertices) {
+            return limit > 0 && parsedVertexDataBytes >= limit;
+        }
+    }
+
+    private static void cacheParsedModel(String modelLocation, List<RenderableVertices> vertices) {
+        synchronized (parsedVertices) {
+            List<RenderableVertices> replaced = parsedVertices.put(modelLocation, vertices);
+            if (replaced != null) {
+                parsedVertexDataBytes -= getVertexDataBytes(replaced);
+            }
+            parsedVertexDataBytes += getVertexDataBytes(vertices);
+
+            long limit = getModelCacheLimitBytes();
+            Iterator<Entry<String, List<RenderableVertices>>> iterator = parsedVertices.entrySet().iterator();
+            //Retain one oversized model: otherwise every render reparses it forever.  The cache
+            //is bounded to the configured budget or the largest currently requested model.
+            while (limit > 0 && parsedVertexDataBytes > limit && parsedVertices.size() > 1 && iterator.hasNext()) {
+                List<RenderableVertices> evicted = iterator.next().getValue();
+                iterator.remove();
+                parsedVertexDataBytes -= getVertexDataBytes(evicted);
+            }
+        }
+    }
+
+    private static long getModelCacheLimitBytes() {
+        if (ConfigSystem.client == null || ConfigSystem.client.renderingSettings == null || ConfigSystem.client.renderingSettings.modelCacheMaxMiB == null) {
+            return 0L;
+        }
+        int limitMiB = ConfigSystem.client.renderingSettings.modelCacheMaxMiB.value;
+        return limitMiB > 0 ? (long) limitMiB * 1024L * 1024L : 0L;
+    }
+
+    private static long getVertexDataBytes(List<RenderableVertices> modelObjects) {
+        long bytes = 0L;
+        for (RenderableVertices object : modelObjects) {
+            bytes += (long) object.vertices.capacity() * Float.BYTES;
+        }
+        return bytes;
     }
 
     /**
