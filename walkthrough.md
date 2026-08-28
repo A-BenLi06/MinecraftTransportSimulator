@@ -272,3 +272,13 @@ Towed vehicles remain active collision participants even though their parent per
 ### Verification
 
 - Included in the final clean build and runtime gates below.
+
+## 2026-08-28T11:18:05+08:00 — Source hygiene correction
+
+### Changes
+
+- Removed trailing whitespace reported by the repository diff validator after the towed-vehicle parity commit.
+
+### Verification
+
+- `git diff --check` passed.

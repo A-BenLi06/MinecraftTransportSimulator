@@ -243,7 +243,7 @@ public abstract class EntityManager {
                 }
             }
             world.endProfiling();
-            
+
             for (AEntityA_Base entity : normalTickSchedule) {
                 if (entity.isValid && (!(entity instanceof AEntityG_Towable) || !(((AEntityG_Towable<?>) entity).blockMainUpdateCall()))) {
                     doTick(entity);
