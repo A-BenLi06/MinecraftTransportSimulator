@@ -292,3 +292,16 @@ Towed vehicles remain active collision participants even though their parent per
 - Inspected the 6,254,864-byte release JAR and confirmed it contains the parked manager, spatial index, optimized entity manager, optimized OBJ/rendering classes, wrapper cache, NeoForge metadata, and mixin manifest.
 - Artifact SHA-256: `4D5461DFFF5108E1C4FFFABEE92A6CFA66CB24A4616AA19D4B966F7EC4672DC2`.
 - `git diff --check` passed and the source worktree was clean before push.
+
+## 2026-08-28T11:23:29+08:00 — Recoverable server deployment
+
+### Changes
+
+- Deployed the verified `Immersive Vehicles-1.21.1-25.0.0.jar` to `E:\yunniverse-server\mods`.
+- Moved the prior 24.0.0 server JAR to `E:\yunniverse-server\mod-backups\2026-08-28-sota` instead of deleting it.
+- Left the running production server untouched; the replacement is staged for its next controlled restart.
+
+### Verification
+
+- The deployed JAR SHA-256 exactly matches the clean-build artifact: `4D5461DFFF5108E1C4FFFABEE92A6CFA66CB24A4616AA19D4B966F7EC4672DC2`.
+- The live mods directory contains one Immersive Vehicles core JAR, version 25.0.0, so the next start will not encounter duplicate IV mod IDs.
