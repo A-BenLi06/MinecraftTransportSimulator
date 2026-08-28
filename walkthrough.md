@@ -282,3 +282,13 @@ Towed vehicles remain active collision participants even though their parent per
 ### Verification
 
 - `git diff --check` passed.
+
+## 2026-08-28T11:21:58+08:00 — Final SOTA verification gate
+
+### Verification
+
+- A from-scratch NeoForge `clean build` completed all 17 tasks successfully on Temurin Java 21.0.12, including the Java 8 core, Java 21 interface, assembly, and all 18 JUnit tests with zero failures or errors.
+- A NeoForge 21.1.77 dedicated development server discovered `mts`, loaded IV 25.0.0, prepared the existing isolated world, and reached `Done (9.720s)` on port 25585 without MTS, parked-proxy, spatial-index, or collision-wrapper exceptions.
+- Inspected the 6,254,864-byte release JAR and confirmed it contains the parked manager, spatial index, optimized entity manager, optimized OBJ/rendering classes, wrapper cache, NeoForge metadata, and mixin manifest.
+- Artifact SHA-256: `4D5461DFFF5108E1C4FFFABEE92A6CFA66CB24A4616AA19D4B966F7EC4672DC2`.
+- `git diff --check` passed and the source worktree was clean before push.
