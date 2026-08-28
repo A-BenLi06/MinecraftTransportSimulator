@@ -36,22 +36,23 @@ public final class ModelParserOBJ extends AModelParser {
         final List<float[]> vertexList = new ArrayList<>();
         final List<float[]> normalList = new ArrayList<>();
         final List<float[]> textureList = new ArrayList<>();
-        final List<String> faceList = new ArrayList<>();
+        final IntArrayBuilder objectVertexData = new IntArrayBuilder(1024);
+        final IntArrayBuilder faceVertexData = new IntArrayBuilder(12);
 
         try {
             int lineNumber = 0;
-            while (reader.ready()) {
-                String line = reader.readLine();
+            String line;
+            while ((line = reader.readLine()) != null) {
                 ++lineNumber;
 
                 //Do normal parsing.
                 if (line.startsWith("o ")) {
                     //Found new object name.  If we are parsing an object, finish up parsing and compile the points for it.
                     if (objectName != null) {
-                        if (faceList.isEmpty()) {
+                        if (objectVertexData.isEmpty()) {
                             InterfaceManager.coreInterface.logError("Object " + objectName + " found with no faces defined at line: " + lineNumber + " in: " + modelLocation);
                         } else {
-                            compileVertexArray(objectList, vertexList, normalList, textureList, faceList, modelLocation, objectName);
+                            compileVertexArray(objectList, vertexList, normalList, textureList, objectVertexData, modelLocation, objectName);
                             objectName = null;
                         }
                     }
@@ -97,7 +98,8 @@ public final class ModelParserOBJ extends AModelParser {
                     }
                 } else if (line.startsWith("f ")) {
                     try {
-                        faceList.add(line.trim().substring(2));
+                        parseFace(line, vertexList.size(), textureList.size(), normalList.size(), faceVertexData);
+                        appendTriangulatedFace(faceVertexData, objectVertexData);
                     } catch (Exception e) {
                         InterfaceManager.coreInterface.logError("Could not parse face info at line: " + lineNumber + " of: " + modelLocation + " due to bad formatting.  Face lines must consist of sets of three numbers in the format (V1/T1/N1, V2/T2/N2, ...).");
                     }
@@ -105,7 +107,7 @@ public final class ModelParserOBJ extends AModelParser {
             }
 
             //End of file.  Save the last part in process and close the file.
-            compileVertexArray(objectList, vertexList, normalList, textureList, faceList, modelLocation, objectName);
+            compileVertexArray(objectList, vertexList, normalList, textureList, objectVertexData, modelLocation, objectName);
             reader.close();
             return objectList;
 
@@ -114,58 +116,95 @@ public final class ModelParserOBJ extends AModelParser {
         }
     }
 
-    private static void compileVertexArray(List<RenderableVertices> objectList, List<float[]> vertexList, List<float[]> normalList, List<float[]> textureList, List<String> faceList, String modelLocation, String objectName) {
+    static void parseFace(String line, int vertexCount, int textureCount, int normalCount, IntArrayBuilder faceVertexData) {
+        faceVertexData.clear();
+        int cursor = 2;
+        while (cursor < line.length()) {
+            while (cursor < line.length() && Character.isWhitespace(line.charAt(cursor))) {
+                ++cursor;
+            }
+            if (cursor >= line.length() || line.charAt(cursor) == '#') {
+                break;
+            }
+
+            int tokenEnd = cursor;
+            while (tokenEnd < line.length() && !Character.isWhitespace(line.charAt(tokenEnd))) {
+                ++tokenEnd;
+            }
+            int firstSlash = line.indexOf('/', cursor);
+            int secondSlash = firstSlash == -1 ? -1 : line.indexOf('/', firstSlash + 1);
+            if (firstSlash < cursor || firstSlash >= tokenEnd || secondSlash <= firstSlash || secondSlash >= tokenEnd) {
+                throw new IllegalArgumentException("Face vertex is missing texture or normal indices.");
+            }
+
+            faceVertexData.add(resolveIndex(line, cursor, firstSlash, vertexCount));
+            faceVertexData.add(resolveIndex(line, firstSlash + 1, secondSlash, textureCount));
+            faceVertexData.add(resolveIndex(line, secondSlash + 1, tokenEnd, normalCount));
+            cursor = tokenEnd;
+        }
+    }
+
+    static int resolveIndex(String line, int start, int end, int elementCount) {
+        if (start >= end) {
+            throw new IllegalArgumentException("OBJ index is empty.");
+        }
+
+        boolean negative = line.charAt(start) == '-';
+        int cursor = negative ? start + 1 : start;
+        if (cursor >= end) {
+            throw new IllegalArgumentException("OBJ index has no digits.");
+        }
+
+        int value = 0;
+        while (cursor < end) {
+            char digit = line.charAt(cursor++);
+            if (digit < '0' || digit > '9') {
+                throw new IllegalArgumentException("OBJ index contains a non-digit character.");
+            }
+            value = Math.addExact(Math.multiplyExact(value, 10), digit - '0');
+        }
+        if (value == 0) {
+            throw new IllegalArgumentException("OBJ indices are one-based and may not be zero.");
+        }
+
+        int resolvedIndex = negative ? elementCount - value : value - 1;
+        //Negative indices are relative to the elements available at this line.  Keep positive
+        //indices eligible for deferred validation so legacy forward references still work.
+        if (resolvedIndex < 0 || negative && resolvedIndex >= elementCount) {
+            throw new IndexOutOfBoundsException("OBJ index resolves outside the available element list.");
+        }
+        return resolvedIndex;
+    }
+
+    static void appendTriangulatedFace(IntArrayBuilder faceVertexData, IntArrayBuilder objectVertexData) {
+        int faceVertexCount = faceVertexData.size() / 3;
+        if (faceVertexCount < 3) {
+            throw new IllegalArgumentException("OBJ faces must contain at least three vertices.");
+        }
+
+        objectVertexData.addTriplet(faceVertexData, 0);
+        objectVertexData.addTriplet(faceVertexData, 3);
+        objectVertexData.addTriplet(faceVertexData, 6);
+        for (int vertexIndex = 3; vertexIndex < faceVertexCount; ++vertexIndex) {
+            objectVertexData.addTriplet(faceVertexData, 0);
+            objectVertexData.addTriplet(faceVertexData, (vertexIndex - 1) * 3);
+            objectVertexData.addTriplet(faceVertexData, vertexIndex * 3);
+        }
+    }
+
+    private static void compileVertexArray(List<RenderableVertices> objectList, List<float[]> vertexList, List<float[]> normalList, List<float[]> textureList, IntArrayBuilder vertexDataSets, String modelLocation, String objectName) {
         if (objectName == null) {
             InterfaceManager.coreInterface.logError("No object name found in the entire OBJ model file of " + modelLocation + ".  Resorting to 'model' as default.  Are you using groups instead of objects by mistake?");
             objectName = "model";
         }
 
         try {
-            List<Integer[]> vertexDataSets = new ArrayList<>();
-            for (String faceString : faceList) {
-                List<Integer[]> faceVertexData = new ArrayList<>();
-                while (!faceString.isEmpty()) {
-                    //Get the face string in format X/Y/Z.  Use the space as a separator between vertices making up the face.
-                    int defEnd = faceString.indexOf(' ');
-                    String faceDef;
-                    if (defEnd != -1) {
-                        //Take the faceDef from the faceString and store it.
-                        faceDef = faceString.substring(0, defEnd);
-                        faceString = faceString.substring(defEnd + 1);
-                    } else {
-                        //We are at the last face vertex here, so just mark the face as the existing string.
-                        faceDef = faceString;
-                        faceString = "";
-                    }
-
-                    //Vertex number is the first entry before the slash.
-                    //Texture number is the second entry between the two slashes.
-                    //Normal number is the third entry after the second slash.
-                    //Parse all these out and store them in the array.
-                    int firstSlash = faceDef.indexOf('/');
-                    int secondSlash = faceDef.lastIndexOf('/');
-                    int vertexNumber = Integer.parseInt(faceDef.substring(0, firstSlash)) - 1;
-                    int textureNumber = Integer.parseInt(faceDef.substring(firstSlash + 1, secondSlash)) - 1;
-                    int normalNumber = Integer.parseInt(faceDef.substring(secondSlash + 1)) - 1;
-
-                    //If we have three or more points in faceValues, it means we need to make a triangle out of this shape.
-                    //Add the first point, the most recent point, and this point to make a triangle.
-                    //Otherwise, just add the face as-is.
-                    if (faceVertexData.size() >= 3) {
-                        faceVertexData.add(faceVertexData.get(0));
-                        faceVertexData.add(faceVertexData.get(faceVertexData.size() - 2));
-                    }
-                    faceVertexData.add(new Integer[]{vertexNumber, textureNumber, normalNumber});
-                }
-                vertexDataSets.addAll(faceVertexData);
-            }
-
             //Compile buffer.
-            FloatBuffer compiledBuffer = FloatBuffer.allocate(vertexDataSets.size() * 8);
-            for (Integer[] vertexData : vertexDataSets) {
-                compiledBuffer.put(normalList.get(vertexData[2]));
-                compiledBuffer.put(textureList.get(vertexData[1]));
-                compiledBuffer.put(vertexList.get(vertexData[0]));
+            FloatBuffer compiledBuffer = FloatBuffer.allocate(Math.multiplyExact(vertexDataSets.size() / 3, 8));
+            for (int dataIndex = 0; dataIndex < vertexDataSets.size(); dataIndex += 3) {
+                compiledBuffer.put(normalList.get(vertexDataSets.get(dataIndex + 2)));
+                compiledBuffer.put(textureList.get(vertexDataSets.get(dataIndex + 1)));
+                compiledBuffer.put(vertexList.get(vertexDataSets.get(dataIndex)));
             }
             compiledBuffer.flip();
             objectList.add(new RenderableVertices(objectName, compiledBuffer, true));
@@ -173,7 +212,64 @@ public final class ModelParserOBJ extends AModelParser {
             InterfaceManager.coreInterface.logError("Could not compile points of: " + modelLocation + ":" + objectName + ".  This is likely due to missing UV mapping on some or all faces.");
         }
 
-        //Clear face list as we don't want to compile them on the next pass.
-        faceList.clear();
+        //Clear face data as we don't want to compile it on the next object.
+        vertexDataSets.clear();
+    }
+
+    /**Primitive growable buffer used to avoid per-index boxing and array allocation.*/
+    static final class IntArrayBuilder {
+        private int[] values;
+        private int size;
+
+        IntArrayBuilder(int initialCapacity) {
+            if (initialCapacity < 1) {
+                throw new IllegalArgumentException("Initial capacity must be positive.");
+            }
+            values = new int[initialCapacity];
+        }
+
+        void add(int value) {
+            ensureCapacity(size + 1);
+            values[size++] = value;
+        }
+
+        void addTriplet(IntArrayBuilder source, int sourceIndex) {
+            if (sourceIndex < 0 || sourceIndex + 2 >= source.size) {
+                throw new IndexOutOfBoundsException("Triplet lies outside the source buffer.");
+            }
+            ensureCapacity(size + 3);
+            values[size++] = source.values[sourceIndex];
+            values[size++] = source.values[sourceIndex + 1];
+            values[size++] = source.values[sourceIndex + 2];
+        }
+
+        int get(int index) {
+            if (index < 0 || index >= size) {
+                throw new IndexOutOfBoundsException("Index " + index + " outside size " + size);
+            }
+            return values[index];
+        }
+
+        int size() {
+            return size;
+        }
+
+        boolean isEmpty() {
+            return size == 0;
+        }
+
+        void clear() {
+            size = 0;
+        }
+
+        private void ensureCapacity(int requiredCapacity) {
+            if (requiredCapacity > values.length) {
+                int grownCapacity = values.length + (values.length >> 1) + 1;
+                int newCapacity = Math.max(requiredCapacity, grownCapacity);
+                int[] expandedValues = new int[newCapacity];
+                System.arraycopy(values, 0, expandedValues, 0, size);
+                values = expandedValues;
+            }
+        }
     }
 }

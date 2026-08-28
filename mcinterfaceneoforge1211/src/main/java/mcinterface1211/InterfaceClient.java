@@ -47,6 +47,7 @@ import net.minecraft.world.level.material.Fluid;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.fluids.FluidStack;
 import net.neoforged.fml.common.EventBusSubscriber;
 
@@ -108,6 +109,12 @@ public class InterfaceClient implements IInterfaceClient {
         if (preloadIndex >= modelsToPreload.size()) {
             InterfaceManager.coreInterface.logError("MTS model preload complete: " + modelsToPreload.size() + " models cached.");
         }
+    }
+
+    /**Resets preloading so the next resource generation builds a fresh queue.*/
+    public static void resetModelPreload() {
+        modelsToPreload = null;
+        preloadIndex = 0;
     }
 
     @Override
@@ -382,9 +389,12 @@ public class InterfaceClient implements IInterfaceClient {
             AWrapperWorld world = InterfaceManager.clientInterface.getClientWorld();
             if (world != null) {
                 ConfigSystem.displayPendingConfigWarnings(player);
-                //Kick off / continue model preloading across ticks.
-                initModelPreload();
-                tickModelPreload();
+                //Eager parsing is opt-in because large packs otherwise retain every model even
+                //when the current session never renders most of them.
+                if (ConfigSystem.client.renderingSettings.preloadModels.value) {
+                    initModelPreload();
+                    tickModelPreload();
+                }
                 if (!player.isSpectator()) {
                     //Handle controls.  This has to happen prior to vehicle updates to ensure click handling is based on current position of the player.
                     ControlSystem.controlGlobal(player);
@@ -458,6 +468,12 @@ public class InterfaceClient implements IInterfaceClient {
                 }
             }
         }
+    }
+
+    @SubscribeEvent
+    public static void onIVClientLogout(ClientPlayerNetworkEvent.LoggingOut event) {
+        AModelParser.clearModelCache();
+        resetModelPreload();
     }
 }
 

@@ -196,3 +196,22 @@ Development runs must load the same logical class graph as assembled jars; other
 - Inspected the 6,237,510-byte `Immersive Vehicles-1.21.1-25.0.0.jar`: it contains the mod metadata, mixin manifest, embedded `mccore` classes, parking protocol, SavedData, server manager, and client proxy manager.
 - Repeated the dedicated-server gate from the final compiled classes. NeoForge discovered `mts`, loaded IV 25.0.0, and reached `Done (9.093s)` on isolated port 25585 without parking-related exceptions.
 - `git diff --check` passed; generated runtime world/config/log files remain ignored and are not part of the source commit.
+
+## 2026-08-28T10:52:23+08:00 — Allocation-aware model loading and cache lifecycle
+
+### Changes
+
+- Preserved the incremental three-models-per-tick preloader but made eager parsing opt-in through the client `preloadModels` setting, defaulting to demand loading for large content packs.
+- Replaced OBJ face strings, boxed `Integer[]` triplets, and per-face lists with reusable primitive integer builders. Faces are triangulated directly into the object index stream while retaining negative-index semantics, comments, arbitrary whitespace, and legacy positive forward references.
+- Added a LegacyCompat fast path that avoids parsing and retaining a model when light objects are already defined and no ground-tread path needs geometry-derived migration.
+- Added explicit model-cache lifecycle APIs and wired them to client logout and resource-pack closure. Both parsed resources and the 25.0.0 `missingModelTemplate` are released, and the preload queue is regenerated for replacement resources.
+- Added OBJ parsing and cache-lifecycle regression suites covering fan triangulation, primitive-buffer growth, negative indices, deferred positive validation, malformed faces, cached payload accounting, and fallback-template invalidation.
+
+### Reasoning
+
+This stage removes allocation bursts at their source and ensures cached model resources have the same lifetime as the client resource generation. Keeping eager preload opt-in prevents unused pack models from becoming permanent session roots, while preserving it for users who prefer lower first-render latency.
+
+### Verification
+
+- The complete NeoForge test suite passed with 13 tests and no failures after compiling both the Java 8 core and Java 21 interface source sets.
+- `git diff --check` passed.
