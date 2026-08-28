@@ -247,9 +247,11 @@ public abstract class EntityManager {
             for (AEntityA_Base entity : normalTickSchedule) {
                 if (entity.isValid && (!(entity instanceof AEntityG_Towable) || !(((AEntityG_Towable<?>) entity).blockMainUpdateCall()))) {
                     doTick(entity);
-                    if (entity instanceof EntityVehicleF_Physics && entity.isValid) {
-                        updateVehicleCollisionIndex((EntityVehicleF_Physics) entity);
-                    }
+                }
+                //Towables blocked from their main call are updated by their towing vehicle, but
+                //still need their post-parent position reflected in the broad-phase index.
+                if (entity instanceof EntityVehicleF_Physics && entity.isValid) {
+                    updateVehicleCollisionIndex((EntityVehicleF_Physics) entity);
                 }
             }
 
@@ -278,9 +280,9 @@ public abstract class EntityManager {
             for (AEntityA_Base entity : playerTickSchedule) {
                 if (entity.isValid && (!(entity instanceof AEntityG_Towable) || !(((AEntityG_Towable<?>) entity).blockMainUpdateCall()))) {
                     doTick(entity);
-                    if (entity instanceof EntityVehicleF_Physics && entity.isValid) {
-                        updateVehicleCollisionIndex((EntityVehicleF_Physics) entity);
-                    }
+                }
+                if (entity instanceof EntityVehicleF_Physics && entity.isValid) {
+                    updateVehicleCollisionIndex((EntityVehicleF_Physics) entity);
                 }
             }
         }

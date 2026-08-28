@@ -258,3 +258,17 @@ The previous ground-device path performed up to four full active-vehicle scans p
 - The Java 8 core and Java 21 NeoForge interface compiled successfully.
 - The complete NeoForge JUnit suite passed with 18 tests, 0 failures, and 0 errors.
 - `git diff --check` passed.
+
+## 2026-08-28T11:17:31+08:00 — Towed-vehicle broad-phase parity
+
+### Changes
+
+- Refreshed spatial-index membership for towables whose standalone main update is intentionally blocked, after their towing parent has updated their position.
+
+### Reasoning
+
+Towed vehicles remain active collision participants even though their parent performs their update. Refreshing all valid vehicle memberships after their schedule slot preserves broad-phase parity for trailers without double-ticking them.
+
+### Verification
+
+- Included in the final clean build and runtime gates below.
