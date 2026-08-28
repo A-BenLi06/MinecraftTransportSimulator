@@ -69,6 +69,8 @@ public class BuilderEntityExisting extends ABuilderEntityBase {
      * Collective for collision boxes.  These are used by this entity to make things interact and attack it.
      **/
     private WrapperAABBCollective interactAttackBoxes;
+    private WrapperAABBCollective.BoxCache wrapperBoxCache;
+    private AEntityE_Interactable<?> wrapperBoxCacheOwner;
 
     public BuilderEntityExisting(EntityType<? extends BuilderEntityExisting> eType, Level world) {
         super(eType, world);
@@ -107,11 +109,15 @@ public class BuilderEntityExisting extends ABuilderEntityBase {
                     //on that first tick that would cause bad maths.
                     //We also do this only every second, as it prevents excess checks.
                     entity.world.beginProfiling("CollisionOverhead", true);
-                    collisionBoxes = new WrapperAABBCollective(interactable, true);
+                    if (wrapperBoxCache == null || wrapperBoxCacheOwner != interactable) {
+                        wrapperBoxCache = new WrapperAABBCollective.BoxCache(interactable);
+                        wrapperBoxCacheOwner = interactable;
+                        interactAttackBoxes = new WrapperAABBCollective(interactable, false, wrapperBoxCache);
+                    }
+                    collisionBoxes = new WrapperAABBCollective(interactable, true, wrapperBoxCache);
                     //Set this to make collision checks work with the multiple collision points.
                     //We use the collision boxes as a wrapper here as we need a bounding box large enough to encompass both.
                     setBoundingBox(collisionBoxes);
-                    interactAttackBoxes = new WrapperAABBCollective(interactable, false);
                     if (entity instanceof EntityVehicleF_Physics && interactable.ticksExisted > 1 && interactable.ticksExisted % 20 == 0) {
                         mutableDims = EntityDimensions.scalable((float) Math.max(interactable.encompassingBox.widthRadius * 2F, interactable.encompassingBox.depthRadius * 2F), (float) interactable.encompassingBox.heightRadius * 2F);
                         //Make sure the collision bounds for MC are big enough to collide with this entity.

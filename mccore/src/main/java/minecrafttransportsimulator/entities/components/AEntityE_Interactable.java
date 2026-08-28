@@ -1,8 +1,10 @@
 package minecrafttransportsimulator.entities.components;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -69,6 +71,8 @@ public abstract class AEntityE_Interactable<JSONDefinition extends AJSONInteract
     public final List<List<BoundingBox>> definitionCollisionBoxes = new ArrayList<>();
     public final Set<BoundingBox> collisionBoxes = new HashSet<>();
     private final Map<JSONCollisionGroup, AnimationSwitchbox> collisionSwitchboxes = new HashMap<>();
+    private final Set<BoundingBox> collisionBoxMembershipSnapshot = Collections.newSetFromMap(new IdentityHashMap<>());
+    private long collisionBoxMembershipRevision;
 
     /**
      * Box that encompasses all boxes on this entity.  This can be used as a pre-check for collision operations
@@ -347,7 +351,30 @@ public abstract class AEntityE_Interactable<JSONDefinition extends AJSONInteract
         /*TODO there's a potential to optimize this for placed parts to not run all the time, but can't seem to get it to work.
         For the moment, we can just leave this running all the time and call it good until placed parts become a TPS issue.*/
         updateEncompassingBox();
+        updateCollisionBoxMembershipRevision();
         world.endProfiling();
+    }
+
+    /**
+     * Monotonic revision for wrapper-side box classification. Box positions may update every
+     * tick, but wrappers only need to rebuild their identity sets when membership changes.
+     */
+    public long getCollisionBoxMembershipRevision() {
+        return collisionBoxMembershipRevision;
+    }
+
+    /**Returns the complete box set used by native collision and interaction wrappers.*/
+    public Set<BoundingBox> getCollisionBoxesForWrapper() {
+        return this instanceof AEntityF_Multipart ? ((AEntityF_Multipart<?>) this).allCollisionBoxes : collisionBoxes;
+    }
+
+    private void updateCollisionBoxMembershipRevision() {
+        Set<BoundingBox> currentBoxes = getCollisionBoxesForWrapper();
+        if (collisionBoxMembershipSnapshot.size() != currentBoxes.size() || !collisionBoxMembershipSnapshot.containsAll(currentBoxes)) {
+            collisionBoxMembershipSnapshot.clear();
+            collisionBoxMembershipSnapshot.addAll(currentBoxes);
+            ++collisionBoxMembershipRevision;
+        }
     }
 
     /**

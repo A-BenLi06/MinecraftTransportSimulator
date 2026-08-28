@@ -236,3 +236,25 @@ The original allocation pattern multiplied CPU vertex copies and native GPU buff
 - The Java 8 core and Java 21 NeoForge interface compiled successfully with Gradle 8.8 on Temurin 21.0.12.
 - The complete NeoForge JUnit suite passed with 16 tests, 0 failures, and 0 errors.
 - `git diff --check` passed.
+
+## 2026-08-28T11:15:59+08:00 — Active-vehicle broad phase and allocation-stable scheduling
+
+### Changes
+
+- Added an identity-based X/Z uniform-grid index for active vehicles. Ground-device collision, multipart bounds queries, internal hitbox damage, and interaction ray broad phases now examine nearby grid candidates instead of scanning every active vehicle.
+- Added a bounded overflow path for unusually large vehicles and large queries, preserving correctness without allowing malformed bounds to allocate an unbounded number of grid buckets.
+- Reused each ground-device box's collision candidate list and the manager's query scratch list, avoiding per-query collections in the hot collision path.
+- Replaced linked-queue traversal on every entity pass with immutable tick schedule snapshots rebuilt only after additions or removals. Invalidated entities are skipped safely, and vehicles refresh their spatial membership after their complete update.
+- Cached each entity's profiler label instead of concatenating its UUID every tick.
+- Added collision-box membership revisions and a shared native-wrapper classification cache. The moving native AABB remains current each tick, while collision/attack/click sets are rebuilt only when their identity membership actually changes; the attack wrapper and its backing sets are reused.
+- Added deterministic spatial-index regression tests covering multi-cell de-duplication, movement, removals, and oversized-object fallback.
+
+### Reasoning
+
+The previous ground-device path performed up to four full active-vehicle scans per vehicle per collision update, producing quadratic scaling. Native builder entities also allocated two wrapper objects and two classification sets every tick, and the manager repeatedly walked concurrent linked nodes for stable entity populations. The new broad phase, dirty membership revision, and stable schedules make the common steady state proportional to nearby candidates and actual lifecycle changes.
+
+### Verification
+
+- The Java 8 core and Java 21 NeoForge interface compiled successfully.
+- The complete NeoForge JUnit suite passed with 18 tests, 0 failures, and 0 errors.
+- `git diff --check` passed.

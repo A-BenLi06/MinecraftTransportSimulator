@@ -8,7 +8,6 @@ import minecrafttransportsimulator.baseclasses.BoundingBox;
 import minecrafttransportsimulator.baseclasses.BoundingBoxHitResult;
 import minecrafttransportsimulator.baseclasses.Point3D;
 import minecrafttransportsimulator.entities.components.AEntityE_Interactable;
-import minecrafttransportsimulator.entities.components.AEntityF_Multipart;
 import minecrafttransportsimulator.jsondefs.JSONCollisionGroup.CollisionType;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
@@ -24,29 +23,21 @@ import net.minecraft.world.phys.Vec3;
 public class WrapperAABBCollective extends AABB {
     private final AEntityE_Interactable<?> interactable;
     private final boolean collision;
-    private final Set<BoundingBox> boxes = new HashSet<>();
+    private final BoxCache boxCache;
 
     public WrapperAABBCollective(AEntityE_Interactable<?> interactable, boolean collision) {
+        this(interactable, collision, new BoxCache(interactable));
+    }
+
+    public WrapperAABBCollective(AEntityE_Interactable<?> interactable, boolean collision, BoxCache boxCache) {
         super(interactable.encompassingBox.globalCenter.x - interactable.encompassingBox.widthRadius, interactable.encompassingBox.globalCenter.y - interactable.encompassingBox.heightRadius, interactable.encompassingBox.globalCenter.z - interactable.encompassingBox.depthRadius, interactable.encompassingBox.globalCenter.x + interactable.encompassingBox.widthRadius, interactable.encompassingBox.globalCenter.y + interactable.encompassingBox.heightRadius, interactable.encompassingBox.globalCenter.z + interactable.encompassingBox.depthRadius);
         this.interactable = interactable;
         this.collision = collision;
+        this.boxCache = boxCache;
     }
 
-    public synchronized Set<BoundingBox> getBoxes() {
-        if (boxes.isEmpty()) {
-            (interactable instanceof AEntityF_Multipart ? ((AEntityF_Multipart<?>) interactable).allCollisionBoxes : interactable.collisionBoxes).forEach(box -> {
-                if (collision) {
-                    if (box.collisionTypes.contains(CollisionType.ENTITY)) {
-                        boxes.add(box);
-                    }
-                } else {
-                    if (box.collisionTypes.contains(CollisionType.ATTACK) || box.collisionTypes.contains(CollisionType.CLICK)) {
-                        boxes.add(box);
-                    }
-                }
-            });
-        }
-        return boxes;
+    public Set<BoundingBox> getBoxes() {
+        return boxCache.getBoxes(collision);
     }
 
     @Override
@@ -165,5 +156,35 @@ public class WrapperAABBCollective extends AABB {
             }
         }
         return offset;
+    }
+
+    /**Shared, dirty-revision-aware classification for both native wrappers of one entity.*/
+    public static final class BoxCache {
+        private final AEntityE_Interactable<?> interactable;
+        private final Set<BoundingBox> collisionBoxes = new HashSet<>();
+        private final Set<BoundingBox> interactionBoxes = new HashSet<>();
+        private long cachedRevision = Long.MIN_VALUE;
+
+        public BoxCache(AEntityE_Interactable<?> interactable) {
+            this.interactable = interactable;
+        }
+
+        private synchronized Set<BoundingBox> getBoxes(boolean collision) {
+            long revision = interactable.getCollisionBoxMembershipRevision();
+            if (cachedRevision != revision) {
+                collisionBoxes.clear();
+                interactionBoxes.clear();
+                for (BoundingBox box : interactable.getCollisionBoxesForWrapper()) {
+                    if (box.collisionTypes.contains(CollisionType.ENTITY)) {
+                        collisionBoxes.add(box);
+                    }
+                    if (box.collisionTypes.contains(CollisionType.ATTACK) || box.collisionTypes.contains(CollisionType.CLICK)) {
+                        interactionBoxes.add(box);
+                    }
+                }
+                cachedRevision = revision;
+            }
+            return collision ? collisionBoxes : interactionBoxes;
+        }
     }
 }

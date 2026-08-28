@@ -35,6 +35,7 @@ public class VehicleGroundDeviceBox {
     private final List<BoundingBox> liquidCollisionBoxes = new ArrayList<>();
     private final List<PartGroundDevice> groundDevices = new ArrayList<>();
     private final List<PartGroundDevice> liquidDevices = new ArrayList<>();
+    private final List<EntityVehicleF_Physics> collisionCandidates = new ArrayList<>();
     private final Point3D solidBoxNormalPos = new Point3D();
 
     public boolean isBlockedVertically;
@@ -426,7 +427,9 @@ public class VehicleGroundDeviceBox {
      */
     private boolean checkEntityCollisions(Point3D collisionMotion) {
         boolean didCollision = false;
-        for (EntityVehicleF_Physics otherVehicle : vehicle.world.getEntitiesOfType(EntityVehicleF_Physics.class)) {
+        collisionCandidates.clear();
+        vehicle.world.populateVehiclesInBounds(collisionCandidates, solidBox);
+        for (EntityVehicleF_Physics otherVehicle : collisionCandidates) {
             if (!otherVehicle.equals(vehicle) && vehicle.canCollideWith(otherVehicle) && !otherVehicle.collidedEntities.contains(vehicle) && otherVehicle.encompassingBox.intersects(solidBox)) {
                 //We know we could have hit this entity.  Check if we actually did.
                 BoundingBox collidingBox = null;

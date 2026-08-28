@@ -30,6 +30,8 @@ public abstract class AEntityA_Base {
      * A unique ID for this entity.  This is only set when this entity is first spawned, and never changes, even on save/load operations.  Ideal if you need a static reference to the entity.
      **/
     public final UUID uniqueUUID;
+    /**Stable profiler label avoids rebuilding a UUID string on every entity tick.*/
+    public final String profilingName;
     /**
      * True as long as this entity is part of the world and being ticked.  May be set false internally or externally to remove this entity from the world.
      **/
@@ -53,6 +55,7 @@ public abstract class AEntityA_Base {
         } else {
             this.uniqueUUID = UUID.randomUUID();
         }
+        this.profilingName = "MTSEntity_" + uniqueUUID;
     }
 
     /**

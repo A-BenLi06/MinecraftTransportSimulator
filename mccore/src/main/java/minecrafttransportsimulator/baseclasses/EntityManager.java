@@ -1,6 +1,7 @@
 package minecrafttransportsimulator.baseclasses;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -36,6 +37,8 @@ import minecrafttransportsimulator.systems.CameraSystem;
  * @author don_bruce
  */
 public abstract class EntityManager {
+    private static final double VEHICLE_COLLISION_CELL_SIZE = 16D;
+    private static final int MAXIMUM_VEHICLE_COLLISION_CELLS = 256;
     public final ConcurrentLinkedQueue<AEntityA_Base> allEntities = new ConcurrentLinkedQueue<>();
     private final ConcurrentLinkedQueue<AEntityA_Base> allNormalTickableEntities = new ConcurrentLinkedQueue<>();
     private final ConcurrentLinkedQueue<AEntityD_Definable<?>> allNormalDefinableTickableEntities = new ConcurrentLinkedQueue<>();
@@ -46,6 +49,14 @@ public abstract class EntityManager {
     private final ConcurrentHashMap<UUID, AEntityA_Base> trackedEntityMap = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, PartGun> gunMap = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, Map<Integer, EntityBullet>> bulletMap = new ConcurrentHashMap<>();
+    private final SpatialIndex<EntityVehicleF_Physics> vehicleCollisionIndex = new SpatialIndex<>(VEHICLE_COLLISION_CELL_SIZE, MAXIMUM_VEHICLE_COLLISION_CELLS);
+    private final List<EntityVehicleF_Physics> vehicleCollisionQueryScratch = new ArrayList<>();
+    private volatile AEntityA_Base[] normalTickSchedule = new AEntityA_Base[0];
+    private volatile AEntityD_Definable<?>[] normalDefinableSchedule = new AEntityD_Definable<?>[0];
+    private volatile AEntityA_Base[] playerTickSchedule = new AEntityA_Base[0];
+    private volatile AEntityD_Definable<?>[] playerDefinableSchedule = new AEntityD_Definable<?>[0];
+    private volatile boolean normalScheduleDirty = true;
+    private volatile boolean playerScheduleDirty = true;
     
     private static final byte hotloadCountdownPreset = 20;
     private static byte hotloadCountdown;
@@ -79,11 +90,13 @@ public abstract class EntityManager {
             if(entity instanceof AEntityD_Definable) {
                 allNormalDefinableTickableEntities.add((AEntityD_Definable<?>) entity);
             }
+            normalScheduleDirty = true;
         } else if (entity.getUpdateTime() == EntityAutoUpdateTime.AFTER_PLAYER) {
             allPlayerTickableEntities.add(entity);
             if(entity instanceof AEntityD_Definable) {
                 allPlayerDefinableTickableEntities.add((AEntityD_Definable<?>) entity);
             }
+            playerScheduleDirty = true;
         }
         if (entity instanceof AEntityC_Renderable) {
             renderableEntities.add((AEntityC_Renderable) entity);
@@ -106,6 +119,9 @@ public abstract class EntityManager {
         classList.add(entity);
         if (entity.shouldSync()) {
             trackedEntityMap.put(entity.uniqueUUID, entity);
+        }
+        if (entity instanceof EntityVehicleF_Physics) {
+            updateVehicleCollisionIndex((EntityVehicleF_Physics) entity);
         }
     }
 
@@ -142,14 +158,23 @@ public abstract class EntityManager {
      * of checks for collision with specific boxes is left up to that operation.
      */
     public void populateWithEntitiesInBounds(List<AEntityF_Multipart<?>> list, BoundingBox bounds) {
-        for (EntityVehicleF_Physics entity : getEntitiesOfType(EntityVehicleF_Physics.class)) {
+        populateVehiclesInBounds(list, bounds);
+        for (EntityPlacedPart entity : getEntitiesOfType(EntityPlacedPart.class)) {
             if (entity.encompassingBox.intersects(bounds)) {
                 list.add(entity);
             }
         }
-        for (EntityPlacedPart entity : getEntitiesOfType(EntityPlacedPart.class)) {
-            if (entity.encompassingBox.intersects(bounds)) {
-                list.add(entity);
+    }
+
+    /**Appends active vehicles whose encompassing bounds overlap the supplied box.*/
+    public void populateVehiclesInBounds(Collection<? super EntityVehicleF_Physics> output, BoundingBox bounds) {
+        synchronized (vehicleCollisionQueryScratch) {
+            vehicleCollisionQueryScratch.clear();
+            vehicleCollisionIndex.query(bounds.globalCenter.x - bounds.widthRadius, bounds.globalCenter.z - bounds.depthRadius, bounds.globalCenter.x + bounds.widthRadius, bounds.globalCenter.z + bounds.depthRadius, vehicleCollisionQueryScratch);
+            for (EntityVehicleF_Physics candidate : vehicleCollisionQueryScratch) {
+                if (candidate.isValid && candidate.encompassingBox.intersects(bounds)) {
+                    output.add(candidate);
+                }
             }
         }
     }
@@ -204,17 +229,29 @@ public abstract class EntityManager {
             }
         }
         if (beforePlayer) {
+            refreshNormalSchedules();
             //Need to do this before updating since defaults have to be set on all entities to ensure VMs run properly.
             world.beginProfiling("VariableModifiers", true);
-            allNormalDefinableTickableEntities.forEach(definable -> definable.setVariableDefaults());
-            allNormalDefinableTickableEntities.forEach(definable -> definable.updateVariableModifiers());
+            for (AEntityD_Definable<?> definable : normalDefinableSchedule) {
+                if (definable.isValid) {
+                    definable.setVariableDefaults();
+                }
+            }
+            for (AEntityD_Definable<?> definable : normalDefinableSchedule) {
+                if (definable.isValid) {
+                    definable.updateVariableModifiers();
+                }
+            }
             world.endProfiling();
             
-            allNormalTickableEntities.forEach(entity -> {
-                if (!(entity instanceof AEntityG_Towable) || !(((AEntityG_Towable<?>) entity).blockMainUpdateCall())) {
+            for (AEntityA_Base entity : normalTickSchedule) {
+                if (entity.isValid && (!(entity instanceof AEntityG_Towable) || !(((AEntityG_Towable<?>) entity).blockMainUpdateCall()))) {
                     doTick(entity);
+                    if (entity instanceof EntityVehicleF_Physics && entity.isValid) {
+                        updateVehicleCollisionIndex((EntityVehicleF_Physics) entity);
+                    }
                 }
-            });
+            }
 
             //Tick lingering explosion effects on the server.
             if (!world.isClient()) {
@@ -227,13 +264,25 @@ public abstract class EntityManager {
                 doHotload();
             }
         } else {
-            allPlayerDefinableTickableEntities.forEach(definable -> definable.setVariableDefaults());
-            allPlayerDefinableTickableEntities.forEach(definable -> definable.updateVariableModifiers());
-            allPlayerTickableEntities.forEach(entity -> {
-                if (!(entity instanceof AEntityG_Towable) || !(((AEntityG_Towable<?>) entity).blockMainUpdateCall())) {
-                    doTick(entity);
+            refreshPlayerSchedules();
+            for (AEntityD_Definable<?> definable : playerDefinableSchedule) {
+                if (definable.isValid) {
+                    definable.setVariableDefaults();
                 }
-            });
+            }
+            for (AEntityD_Definable<?> definable : playerDefinableSchedule) {
+                if (definable.isValid) {
+                    definable.updateVariableModifiers();
+                }
+            }
+            for (AEntityA_Base entity : playerTickSchedule) {
+                if (entity.isValid && (!(entity instanceof AEntityG_Towable) || !(((AEntityG_Towable<?>) entity).blockMainUpdateCall()))) {
+                    doTick(entity);
+                    if (entity instanceof EntityVehicleF_Physics && entity.isValid) {
+                        updateVehicleCollisionIndex((EntityVehicleF_Physics) entity);
+                    }
+                }
+            }
         }
         world.endProfiling();
     }
@@ -348,7 +397,7 @@ public abstract class EntityManager {
     }
 
     public static void doTick(AEntityA_Base entity) {
-        entity.world.beginProfiling("MTSEntity_" + entity.uniqueUUID, true);
+        entity.world.beginProfiling(entity.profilingName, true);
         if (entity instanceof AEntityD_Definable) {
             AEntityD_Definable<?> definable = (AEntityD_Definable<?>) entity;
             entity.world.beginProfiling("MainUpdate", false);
@@ -387,8 +436,7 @@ public abstract class EntityManager {
         boolean clickOnly = collisionTypes.length == 1 && collisionTypes[0] == CollisionType.CLICK;
         BoundingBox vectorBounds = new BoundingBox(startPoint, endPoint);
         List<AEntityF_Multipart<?>> multiparts = new ArrayList<>();
-        multiparts.addAll(getEntitiesOfType(EntityVehicleF_Physics.class));
-        multiparts.addAll(getEntitiesOfType(EntityPlacedPart.class));
+        populateWithEntitiesInBounds(multiparts, vectorBounds);
 
         for (AEntityF_Multipart<?> multipart : multiparts) {
             if (multipart != entityToIgnore && multipart.encompassingBox.intersects(vectorBounds) && (!clickOnly || multipart.canBeClicked())) {
@@ -433,6 +481,8 @@ public abstract class EntityManager {
         allNormalDefinableTickableEntities.remove(entity);
         allPlayerTickableEntities.remove(entity);
         allPlayerDefinableTickableEntities.remove(entity);
+        normalScheduleDirty = true;
+        playerScheduleDirty = true;
         if (entity instanceof AEntityC_Renderable) {
             renderableEntities.remove(entity);
         }
@@ -444,6 +494,32 @@ public abstract class EntityManager {
             EntityBullet bullet = (EntityBullet) entity;
             bulletMap.get(bullet.gun.uniqueUUID).remove(bullet.bulletNumber);
         }
+        if (entity instanceof EntityVehicleF_Physics) {
+            vehicleCollisionIndex.remove((EntityVehicleF_Physics) entity);
+        }
+    }
+
+    private void refreshNormalSchedules() {
+        if (normalScheduleDirty) {
+            //Clear first so a concurrent add/remove occurring during snapshot creation marks the
+            //schedule dirty for the next tick instead of having its signal overwritten.
+            normalScheduleDirty = false;
+            normalTickSchedule = allNormalTickableEntities.toArray(new AEntityA_Base[0]);
+            normalDefinableSchedule = allNormalDefinableTickableEntities.toArray(new AEntityD_Definable<?>[0]);
+        }
+    }
+
+    private void refreshPlayerSchedules() {
+        if (playerScheduleDirty) {
+            playerScheduleDirty = false;
+            playerTickSchedule = allPlayerTickableEntities.toArray(new AEntityA_Base[0]);
+            playerDefinableSchedule = allPlayerDefinableTickableEntities.toArray(new AEntityD_Definable<?>[0]);
+        }
+    }
+
+    private void updateVehicleCollisionIndex(EntityVehicleF_Physics vehicle) {
+        BoundingBox box = vehicle.encompassingBox;
+        vehicleCollisionIndex.update(vehicle, box.globalCenter.x - box.widthRadius, box.globalCenter.z - box.depthRadius, box.globalCenter.x + box.widthRadius, box.globalCenter.z + box.depthRadius);
     }
     
     public void adjustHeightForRain(Point3D position) {
